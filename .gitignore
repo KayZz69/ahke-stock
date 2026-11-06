@@ -10,3 +10,6 @@ ahke-stock-*.json
 node_modules/
 .wrangler/
 .dev.vars
+
+# Cloudflare API token for this project only
+.cloudflare-token

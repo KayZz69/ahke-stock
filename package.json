@@ -5,8 +5,10 @@
   "scripts": {
     "dev": "wrangler dev --port 8787",
     "db:local": "wrangler d1 migrations apply ahke-stock --local",
-    "db:remote": "wrangler d1 migrations apply ahke-stock --remote",
-    "deploy": "wrangler deploy"
+    "db:remote": "node scripts/wrangler.mjs d1 migrations apply ahke-stock --remote",
+    "deploy": "node scripts/wrangler.mjs deploy",
+    "set-password": "node scripts/wrangler.mjs secret put APP_PASSWORD",
+    "cf": "node scripts/wrangler.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.158.0"

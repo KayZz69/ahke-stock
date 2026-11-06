@@ -1,0 +1,2 @@
+# Never upload tool state or dotfiles as site assets
+.*
