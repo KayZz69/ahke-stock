@@ -3,6 +3,8 @@
 Stock tool for the AHKE stationery cupboard. Static files, no dependencies, no build
 step. Works offline once loaded and installs to a phone home screen.
 
+**Live:** https://kayzz69.github.io/ahke-stock/ (GitHub Pages, HTTPS)
+
 ## Running it
 
 Serve the folder:
