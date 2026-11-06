@@ -4,6 +4,8 @@ Stock tool for the AHKE stationery cupboard. One Cloudflare Worker serves the ap
 append-only event log in D1, all behind one password. Works offline, installs to a phone
 home screen, and syncs between devices.
 
+**Live:** https://ahke-stock.mineskaters456.workers.dev (password required)
+
 ## How it fits together
 
 | Path | What it is |
@@ -38,17 +40,17 @@ One-time setup, from this folder:
 
 ```bash
 npm install
-npx wrangler login                     # opens Cloudflare in the browser
-npx wrangler d1 create ahke-stock      # copy the database_id it prints into wrangler.toml
+# put a Cloudflare API token for the AHKE account in .cloudflare-token (gitignored);
+# scripts/wrangler.mjs uses it, so the machine-wide `wrangler login` is left alone
+npm run cf -- d1 create ahke-stock     # copy the database_id it prints into wrangler.toml
 npm run db:remote                      # create the tables
-npx wrangler secret put APP_PASSWORD   # type the password you want (not stored in git)
-node -e "process.stdout.write(require('crypto').randomBytes(32).toString('base64url'))" | npx wrangler secret put SESSION_SECRET
-npm run deploy                         # prints the https://ahke-stock.<you>.workers.dev URL
+npm run set-password                   # type the password you want (not stored in git)
+node -e "process.stdout.write(require('crypto').randomBytes(32).toString('base64url'))" | npm run cf -- secret put SESSION_SECRET
+npm run deploy
 ```
 
-Later updates are just `npm run deploy`. Change the password with
-`npx wrangler secret put APP_PASSWORD`; set a new `SESSION_SECRET` the same way to sign every
-device out.
+Already done for the live site. Later updates are just `npm run deploy`. Change the password
+with `npm run set-password`; set a new `SESSION_SECRET` (as above) to sign every device out.
 
 ## Local development
 
