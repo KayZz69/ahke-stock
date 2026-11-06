@@ -1,0 +1,1134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>AHKE Stock</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1f5fd0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AHKE Stock">
+<style>
+:root {
+  --bg: #f6f7f9; --surface: #fff; --sunken: #f0f2f5; --line: #e2e5ea;
+  --text: #16181d; --muted: #666e7a;
+  --accent: #1f5fd0; --accent-fg: #fff;
+  --ok: #1a7f4b; --low: #a86a00; --reorder: #c03030; --unknown: #6b7280;
+  --warn-bg: #fff6e5; --warn-line: #f0d090;
+  --radius: 12px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14161a; --surface: #1d2026; --sunken: #171a1f; --line: #2e333c;
+    --text: #e8eaee; --muted: #9aa2ae;
+    --accent: #5b93f0; --accent-fg: #0d1117;
+    --ok: #4cc98a; --low: #e0a83c; --reorder: #f0736b; --unknown: #8b93a0;
+    --warn-bg: #2c2413; --warn-line: #5c4a1c;
+  }
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.wrap { max-width: 760px; margin: 0 auto; padding: 0 14px 130px; }
+
+header {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+  padding: 10px 14px; padding-top: calc(10px + env(safe-area-inset-top));
+}
+header .inner { max-width: 760px; margin: 0 auto; display: flex; align-items: center; gap: 10px; }
+header h1 { font-size: 17px; margin: 0; font-weight: 650; letter-spacing: -0.01em; flex: 1; min-width: 0; }
+header .sub { font-size: 13px; color: var(--muted); font-weight: 400; }
+
+button {
+  font: inherit; cursor: pointer; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--text);
+  padding: 10px 14px; min-height: 44px;
+}
+button:disabled { opacity: .45; cursor: not-allowed; }
+.btn-primary { background: var(--accent); color: var(--accent-fg); border-color: transparent; font-weight: 600; }
+.btn-ghost { background: transparent; }
+.btn-danger { color: var(--reorder); }
+.btn-sm { min-height: 36px; padding: 6px 10px; font-size: 14px; }
+.btn-lg { min-height: 52px; font-size: 17px; }
+
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; margin: 12px 0; }
+.card.tight { padding: 4px 14px; }
+h2.sec { font-size: 14px; margin: 0 0 10px; color: var(--muted); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.group-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-weight: 600; margin: 18px 2px 6px; }
+
+.tallies { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.tally { text-align: center; padding: 10px 4px; border-radius: 10px; border: 1px solid var(--line); }
+.tally .n { font-size: 26px; font-weight: 700; line-height: 1.1; }
+.tally .l { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.t-OK .n { color: var(--ok); } .t-LOW .n { color: var(--low); }
+.t-REORDER .n { color: var(--reorder); } .t-UNKNOWN .n { color: var(--unknown); }
+
+.row { display: flex; align-items: center; gap: 10px; padding: 11px 0; border-bottom: 1px solid var(--line); }
+.row:last-child { border-bottom: 0; }
+.row .name { flex: 1; min-width: 0; }
+.row .name b { font-weight: 550; display: block; }
+.row .name small { color: var(--muted); font-size: 12.5px; display: block; }
+.qty { font-variant-numeric: tabular-nums; font-weight: 650; text-align: right; white-space: nowrap; }
+.pill { font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 3px 8px; border-radius: 999px; border: 1px solid currentColor; white-space: nowrap; }
+.p-OK { color: var(--ok); } .p-LOW { color: var(--low); }
+.p-REORDER { color: var(--reorder); } .p-UNKNOWN { color: var(--unknown); }
+.p-DRAFT, .p-CANCELLED { color: var(--unknown); }
+.p-ORDERED { color: var(--accent); }
+.p-PARTIALLY_RECEIVED, .p-CLOSED_SHORT { color: var(--low); }
+.p-RECEIVED { color: var(--ok); }
+
+input[type=text], input[type=number], input:not([type]), textarea, select {
+  font: inherit; padding: 10px; border-radius: 10px;
+  border: 1.5px solid var(--line); background: var(--sunken); color: var(--text); min-height: 44px;
+}
+input:focus, textarea:focus, select:focus { outline: none; border-color: var(--accent); }
+.numin { width: 84px; font-size: 19px; font-variant-numeric: tabular-nums; text-align: center; padding: 10px 6px; min-height: 48px; }
+.count-row.done .numin { border-color: var(--ok); }
+.count-row.invalid .numin { border-color: var(--reorder); }
+textarea { width: 100%; resize: vertical; min-height: 60px; }
+
+.footbar {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
+  background: var(--surface); border-top: 1px solid var(--line);
+  padding: 10px 14px calc(10px + env(safe-area-inset-bottom));
+}
+.footbar .inner { max-width: 760px; margin: 0 auto; display: flex; align-items: center; gap: 12px; }
+.footbar .progress { flex: 1; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.footbar .progress b { color: var(--text); font-size: 16px; }
+
+nav.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 15;
+  background: var(--surface); border-top: 1px solid var(--line);
+  display: flex; padding-bottom: env(safe-area-inset-bottom);
+}
+nav.tabs button {
+  flex: 1; border: 0; background: none; border-radius: 0; min-height: 56px;
+  font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 2px;
+  align-items: center; justify-content: center; padding: 6px 2px;
+}
+nav.tabs button .ico { font-size: 19px; line-height: 1; }
+nav.tabs button[aria-current="page"] { color: var(--accent); font-weight: 600; }
+nav.tabs .badge {
+  position: absolute; transform: translate(16px, -14px);
+  background: var(--reorder); color: #fff; font-size: 10px; font-weight: 700;
+  min-width: 17px; height: 17px; border-radius: 999px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+}
+
+.banner { background: var(--warn-bg); border: 1px solid var(--warn-line); border-radius: var(--radius); padding: 12px 14px; margin: 12px 0; font-size: 14px; }
+.banner b.hd { display: block; margin-bottom: 4px; }
+.banner ul { margin: 6px 0 0; padding-left: 18px; }
+.banner li { margin: 3px 0; }
+
+.actions { display: grid; gap: 10px; margin: 16px 0; }
+.actions.inline { grid-auto-flow: column; grid-auto-columns: 1fr; }
+.muted { color: var(--muted); font-size: 13.5px; }
+.center { text-align: center; }
+.strike { text-decoration: line-through; opacity: .55; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; overflow-wrap: anywhere; }
+.chk { width: 22px; height: 22px; accent-color: var(--accent); flex: 0 0 auto; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+.field { display: grid; gap: 4px; margin-bottom: 10px; }
+.field input, .field select { width: 100%; min-width: 0; }
+.field label { font-size: 12.5px; color: var(--muted); font-weight: 600; }
+
+dialog {
+  border: 1px solid var(--line); border-radius: var(--radius); padding: 18px;
+  background: var(--surface); color: var(--text); max-width: 420px; width: calc(100% - 32px);
+}
+dialog::backdrop { background: rgba(0,0,0,.45); }
+dialog h3 { margin: 0 0 8px; font-size: 17px; }
+dialog p { margin: 0 0 14px; font-size: 14.5px; color: var(--muted); }
+dialog .actions { margin: 0; }
+.repl-row { flex-wrap: wrap; }
+.repl-ctrls { flex-basis: 100%; display: flex; align-items: center; gap: 8px; padding-left: 32px; }
+.repl-ctrls .numin { width: 72px; }
+.repl-ctrls select { flex: 1; min-width: 0; }
+.hidden { display: none !important; }
+@media (min-width: 700px) { .desk-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="inner">
+    <button class="btn-ghost btn-sm" id="btn-back" hidden>‹ Back</button>
+    <h1 id="hdr-title">AHKE Stock <span class="sub" id="hdr-sub"></span></h1>
+  </div>
+</header>
+
+<div class="wrap" id="view"></div>
+
+<div class="footbar hidden" id="footbar">
+  <div class="inner">
+    <div class="progress" id="progress"></div>
+    <button class="btn-primary" id="btn-footer-action" disabled>Complete count</button>
+  </div>
+</div>
+
+<nav class="tabs" id="tabs"></nav>
+
+<dialog id="dlg">
+  <h3 id="dlg-title"></h3>
+  <p id="dlg-body"></p>
+  <div class="field hidden" id="dlg-field">
+    <label id="dlg-label"></label>
+    <input type="text" id="dlg-input">
+  </div>
+  <div class="actions" id="dlg-actions"></div>
+</dialog>
+
+<script>
+'use strict';
+
+/* ==================================================================
+ * Seed master data — from AHKE Stationery Stock.xlsx (26 Aug 2026).
+ * Adjusted: Coffee reorder 0 -> 2 kg (target 4); targets for Paper cups,
+ * Forks, Tassay, Sugar and Tea raised to the level actually held on 26 Aug.
+ * Seeds only: once saved, the stored master is authoritative and
+ * editable under Setup.
+ * ================================================================== */
+const SEED_SUPPLIERS = [
+  { id: 'officeexpert', name: 'OfficeExpert', active: true, note: 'Web' },
+  { id: 'metro',        name: 'METRO',        active: true, note: 'Web' }
+];
+const SEED_ITEMS = [
+  { id:'coffee',   name:'Coffee',               cat:'Refreshments', unit:'kg',       min:2, warn:3,   target:4,  step:0.1, supplier:'officeexpert' },
+  { id:'cups_pl',  name:'Plastic cups',         cat:'Refreshments', unit:'packs',    min:2, warn:3,   target:5,  step:1,   supplier:'officeexpert' },
+  { id:'cups_pa',  name:'Paper cups',           cat:'Refreshments', unit:'packs',    min:2, warn:3,   target:10,  step:1,   supplier:'officeexpert' },
+  { id:'forks',    name:'Plastic forks',        cat:'Refreshments', unit:'packs',    min:2, warn:3,   target:9,   step:1,   supplier:'officeexpert' },
+  { id:'spoons',   name:'Plastic spoons',       cat:'Refreshments', unit:'packs',    min:2, warn:3,   target:5,  step:1,   supplier:'officeexpert' },
+  { id:'plates',   name:'Plastic plates',       cat:'Refreshments', unit:'packs',    min:2, warn:3,   target:5,  step:1,   supplier:'officeexpert' },
+  { id:'water',    name:'Tassay water bottles', cat:'Refreshments', unit:'boxes',    min:3, warn:4.5, target:6,   step:1,   supplier:'officeexpert' },
+  { id:'sugar',    name:'Sugar',                cat:'Refreshments', unit:'packs',    min:6, warn:9,   target:14, step:1,   supplier:'officeexpert' },
+  { id:'tea',      name:'Greenfield Black Tea', cat:'Refreshments', unit:'boxes',    min:3, warn:4.5, target:6,   step:1,   supplier:'officeexpert' },
+  { id:'milk',     name:'Milk',                 cat:'Refreshments', unit:'cartons',  min:3, warn:4.5, target:5,  step:1,   supplier:'officeexpert' },
+  { id:'tissues',  name:'Small tissues',        cat:'Hygiene',      unit:'packs',    min:5, warn:7.5, target:15, step:1,   supplier:'officeexpert' },
+  { id:'paper_a4', name:'Svetocopy A4 Paper',   cat:'Office',       unit:'packages', min:3, warn:4.5, target:10, step:1,   supplier:'officeexpert' }
+];
+const TZ = 'Asia/Almaty';
+const SCHEMA = 2;
+
+/* ==================================================================
+ * Storage — the entire persistence surface. A server or Sheet backend
+ * swaps in here without the rest of the app changing.
+ * ================================================================== */
+const Storage = {
+  K: { ops:'ahke.ops.v1', orders:'ahke.orders.v1', draft:'ahke.draft.v1',
+       items:'ahke.items.v1', suppliers:'ahke.suppliers.v1' },
+  _get(k, fallback) { try { const v = JSON.parse(localStorage.getItem(k)); return v === null ? fallback : v; } catch { return fallback; } },
+  _set(k, v) { localStorage.setItem(k, JSON.stringify(v)); },
+
+  items()     { return this._get(this.K.items, null) || structuredClone(SEED_ITEMS); },
+  saveItems(v){ this._set(this.K.items, v); },
+  suppliers() { return this._get(this.K.suppliers, null) || structuredClone(SEED_SUPPLIERS); },
+  saveSuppliers(v) { this._set(this.K.suppliers, v); },
+
+  ops()  { return this._get(this.K.ops, []); },
+  append(op) {                                    // op.id doubles as the idempotency key
+    const ops = this.ops();
+    if (ops.some(o => o.id === op.id)) return op;
+    ops.push(op); this._set(this.K.ops, ops); return op;
+  },
+
+  orders() { return this._get(this.K.orders, []); },
+  putOrder(order) {
+    const all = this.orders();
+    const i = all.findIndex(o => o.id === order.id);
+    if (i >= 0) all[i] = order; else all.push(order);
+    this._set(this.K.orders, all);
+    return order;
+  },
+  dropOrder(id) { this._set(this.K.orders, this.orders().filter(o => o.id !== id)); },
+
+  draft()      { return this._get(this.K.draft, null); },
+  saveDraft(d) { this._set(this.K.draft, d); },
+  clearDraft() { localStorage.removeItem(this.K.draft); },
+
+  exportAll() {
+    return { schema: SCHEMA, exported_at: new Date().toISOString(), timezone: TZ,
+             items: this.items(), suppliers: this.suppliers(),
+             operations: this.ops(), orders: this.orders() };
+  },
+  importAll(d) {
+    this._set(this.K.items, d.items); this._set(this.K.suppliers, d.suppliers);
+    this._set(this.K.ops, d.operations); this._set(this.K.orders, d.orders || []);
+    this.clearDraft();
+  }
+};
+
+/* --------------------------- state / helpers --------------------------- */
+let ITEMS = Storage.items(), SUPPLIERS = Storage.suppliers();
+const byId    = id => ITEMS.find(i => i.id === id);
+const supName = id => (SUPPLIERS.find(s => s.id === id) || { name: '—' }).name;
+const reloadMaster = () => { ITEMS = Storage.items(); SUPPLIERS = Storage.suppliers(); };
+
+const uid = p => (p || 'op') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+const fmtQty = n => (Math.round(n * 100) / 100).toString();
+const sum = a => a.reduce((x, y) => x + y, 0);
+
+function businessDate(iso) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year:'numeric', month:'2-digit', day:'2-digit' })
+    .format(iso ? new Date(iso) : new Date());
+}
+function fmtDateTime(iso) {
+  return new Intl.DateTimeFormat('en-GB', { timeZone: TZ, day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })
+    .format(new Date(iso));
+}
+function ageText(iso) {
+  const d = Math.floor((Date.now() - new Date(iso)) / 86400000);
+  return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d + ' days ago';
+}
+
+/* ==================================================================
+ * Projection — replay the immutable journal.
+ *   COUNT         absolute SET per item (blank = no observation)
+ *   RECEIPT       signed DELTA per item
+ *   RECEIPT_VOID  quantity-neutral; excludes the receipt it references
+ * A COUNT is a fresh baseline, so a voided receipt that predates a
+ * later count correctly has no effect after it.
+ * ================================================================== */
+function project() {
+  const ops = Storage.ops();
+  const superseded = new Set(ops.filter(o => o.type === 'COUNT').map(o => o.supersedes).filter(Boolean));
+  const voided     = new Set(ops.filter(o => o.type === 'RECEIPT_VOID').map(o => o.voids).filter(Boolean));
+  const excluded   = new Set([...superseded, ...voided]);
+
+  const live = ops.filter(o => !excluded.has(o.id))
+    .sort((a, b) => a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : a.seq - b.seq);
+
+  const qty = {};                 // absent = UNKNOWN
+  let lastCount = null;
+  for (const op of live) {
+    if (op.type === 'COUNT') {
+      lastCount = op;
+      for (const [item_id, v] of Object.entries(op.lines)) {
+        if (v === null || v === undefined) continue;    // blank = unknown, never zero
+        qty[item_id] = v;
+      }
+    } else if (op.type === 'RECEIPT') {
+      for (const l of op.lines) qty[l.item_id] = (qty[l.item_id] ?? 0) + l.qty;
+    }
+  }
+  return { qty, lastCount, excluded,
+           counts: live.filter(o => o.type === 'COUNT'),
+           receipts: live.filter(o => o.type === 'RECEIPT') };
+}
+
+function statusOf(item, q) {
+  if (q === undefined) return 'UNKNOWN';
+  if (q <= item.min)  return 'REORDER';
+  if (q <= item.warn) return 'LOW';
+  return 'OK';
+}
+function stepOk(item, n) {
+  const s = n / item.step;
+  return Math.abs(s - Math.round(s)) < 1e-9;
+}
+function thresholdExceptions(qty) {
+  const out = [];
+  for (const it of ITEMS) {
+    if (it.min === 0) out.push(`<b>${esc(it.name)}</b> has a reorder point of 0 — it will never warn until it is completely empty.`);
+    else if (Math.floor(it.warn / it.step + 1e-9) * it.step <= it.min + 1e-9)
+      out.push(`<b>${esc(it.name)}</b> can never show LOW: no countable quantity falls between ${fmtQty(it.min)} and ${fmtQty(it.warn)}.`);
+    const q = qty[it.id];
+    if (q !== undefined && q > it.target)
+      out.push(`<b>${esc(it.name)}</b> is held at ${fmtQty(q)} ${esc(it.unit)} but its target is only ${fmtQty(it.target)} — the target looks stale.`);
+  }
+  return out;
+}
+
+/* ==================================================================
+ * Order lifecycle — derived from line balances, never stored as a
+ * mutable status field.
+ *   O ordered   R received (valid)   C cancelled   B = O - R - C
+ * ================================================================== */
+function receivedByLine(orderId) {
+  const map = {};
+  for (const op of project().receipts) {
+    if (op.order_id !== orderId) continue;
+    for (const l of op.lines) map[l.order_line_id] = (map[l.order_line_id] || 0) + l.qty;
+  }
+  return map;
+}
+function orderBalances(order) {
+  const rec = receivedByLine(order.id);
+  const lines = order.lines.map(l => {
+    const R = rec[l.id] || 0, C = l.cancelled || 0, O = l.ordered || 0;
+    return { ...l, R, C, O, B: Math.max(0, O - R - C) };
+  });
+  const O = sum(lines.map(l => l.O)), R = sum(lines.map(l => l.R)), C = sum(lines.map(l => l.C));
+  return { lines, O, R, C, B: O - R - C };
+}
+function orderState(order) {
+  if (!order.confirmed) return 'DRAFT';
+  const { O, R, C, B } = orderBalances(order);
+  if (R === 0 && C === O && B === 0) return 'CANCELLED';
+  if (R > 0 && R < O && B === 0)     return 'CLOSED_SHORT';
+  if (R === O && C === 0 && B === 0) return 'RECEIVED';
+  if (R > 0 && B > 0)                return 'PARTIALLY_RECEIVED';
+  return 'ORDERED';                                  // confirmed, R = 0, B > 0
+}
+const isTerminal = s => ['RECEIVED','CANCELLED','CLOSED_SHORT'].includes(s);
+
+/* ==================================================================
+ * Router
+ * ================================================================== */
+const view = document.getElementById('view');
+const footbar = document.getElementById('footbar');
+const btnBack = document.getElementById('btn-back');
+const btnFooter = document.getElementById('btn-footer-action');
+const hdrTitle = document.getElementById('hdr-title');
+const hdrSub = document.getElementById('hdr-sub');
+const tabsEl = document.getElementById('tabs');
+
+let route = { name: 'stock' }, footerHandler = null;
+
+const TABS = [
+  { id:'stock',   label:'Stock',   ico:'📦' },
+  { id:'orders',  label:'Orders',  ico:'🧾' },
+  { id:'history', label:'History', ico:'🕘' },
+  { id:'setup',   label:'Setup',   ico:'⚙️' }
+];
+
+function go(name, params) { route = { name, ...params }; render(); window.scrollTo(0, 0); }
+
+function render() {
+  reloadMaster();
+  btnBack.hidden = true;
+  footbar.classList.add('hidden');
+  footerHandler = null;
+  hdrSub.textContent = '';
+  tabsEl.classList.toggle('hidden', !TABS.some(t => t.id === route.name));
+
+  tabsEl.innerHTML = TABS.map(t => {
+    const badge = t.id === 'orders' ? openOrderCount() : 0;
+    return `<button ${route.name === t.id ? 'aria-current="page"' : ''} data-tab="${t.id}">
+      <span class="ico">${t.ico}${badge ? `<span class="badge">${badge}</span>` : ''}</span><span>${t.label}</span></button>`;
+  }).join('');
+
+  ({ stock:renderStock, count:renderCount, replenish:renderReplenish, orders:renderOrders,
+     order:renderOrderDetail, receive:renderReceive, history:renderHistory, setup:renderSetup
+   })[route.name]();
+}
+tabsEl.addEventListener('click', e => {
+  const b = e.target.closest('[data-tab]'); if (b) go(b.dataset.tab);
+});
+btnBack.addEventListener('click', () => {
+  if (route.name === 'count' && countDraft) Storage.saveDraft(countDraft);
+  countDraft = null;
+  go(route.back || 'stock', route.backParams);
+});
+btnFooter.addEventListener('click', () => footerHandler && footerHandler());
+
+function setHeader(title, sub, backTo, backParams) {
+  hdrTitle.innerHTML = esc(title) + (sub ? ` <span class="sub">${esc(sub)}</span>` : '');
+  if (backTo) { btnBack.hidden = false; route.back = backTo; route.backParams = backParams; }
+}
+function setFooter(label, enabled, handler, progressHtml) {
+  footbar.classList.remove('hidden');
+  btnFooter.textContent = label;
+  btnFooter.disabled = !enabled;
+  footerHandler = handler;
+  document.getElementById('progress').innerHTML = progressHtml || '';
+}
+function openOrderCount() {
+  return Storage.orders().filter(o => !isTerminal(orderState(o))).length;
+}
+
+/* ==================================================================
+ * Dialog
+ * ================================================================== */
+const dlg = document.getElementById('dlg');
+function ask({ title, body, field, buttons }) {
+  return new Promise(resolve => {
+    document.getElementById('dlg-title').textContent = title;
+    document.getElementById('dlg-body').innerHTML = body || '';
+    document.getElementById('dlg-body').classList.toggle('hidden', !body);
+    const fw = document.getElementById('dlg-field'), fi = document.getElementById('dlg-input');
+    fw.classList.toggle('hidden', !field);
+    if (field) { document.getElementById('dlg-label').textContent = field.label; fi.value = ''; fi.placeholder = field.placeholder || ''; }
+    const acts = document.getElementById('dlg-actions');
+    acts.innerHTML = buttons.map((b, i) => `<button class="${b.cls || ''}" data-i="${i}">${esc(b.label)}</button>`).join('');
+    acts.querySelectorAll('button').forEach(b => b.onclick = () => {
+      const chosen = buttons[+b.dataset.i];
+      if (chosen.requireField && !fi.value.trim()) { fi.focus(); return; }
+      dlg.close();
+      resolve({ value: chosen.value, text: fi.value.trim() });
+    });
+    dlg.showModal();
+    if (field) setTimeout(() => fi.focus(), 30);
+  });
+}
+
+/* ==================================================================
+ * Screen — Stock (home)
+ * ================================================================== */
+function renderStock() {
+  setHeader('AHKE Stock');
+  const { qty, lastCount } = project();
+  const rows = ITEMS.map(it => ({ it, q: qty[it.id], st: statusOf(it, qty[it.id]) }));
+  const tally = { REORDER:0, LOW:0, OK:0, UNKNOWN:0 };
+  rows.forEach(r => tally[r.st]++);
+  const rank = { REORDER:0, LOW:1, UNKNOWN:2, OK:3 };
+  rows.sort((a, b) => rank[a.st] - rank[b.st] || a.it.name.localeCompare(b.it.name));
+
+  const draft = Storage.draft();
+  const exceptions = thresholdExceptions(qty);
+  const needs = rows.filter(r => r.st === 'REORDER' || r.st === 'LOW').length;
+
+  view.innerHTML = `
+    <div class="card">
+      <h2 class="sec">Last count</h2>
+      ${lastCount
+        ? `<div style="font-size:15px">${esc(fmtDateTime(lastCount.occurred_at))} · <span class="muted">${esc(ageText(lastCount.occurred_at))}</span></div>`
+        : `<div class="muted">No count yet. Every item stays UNKNOWN until an opening count is completed.</div>`}
+    </div>
+
+    <div class="card">
+      <h2 class="sec">Status</h2>
+      <div class="tallies">
+        ${['REORDER','LOW','OK','UNKNOWN'].map(s => `<div class="tally t-${s}"><div class="n">${tally[s]}</div><div class="l">${s}</div></div>`).join('')}
+      </div>
+    </div>
+
+    ${draft ? `<div class="banner">
+      <b class="hd">Unfinished count</b>
+      ${Object.values(draft.lines).filter(v => v !== null).length} of ${ITEMS.length} entered, saved ${esc(ageText(draft.saved_at))}. Live stock is unchanged.
+      <div class="actions inline" style="margin-top:10px">
+        <button class="btn-primary btn-sm" data-act="resume">Resume</button>
+        <button class="btn-ghost btn-sm" data-act="discard">Discard</button>
+      </div></div>` : ''}
+
+    <div class="actions">
+      <button class="btn-primary btn-lg" data-act="count">${draft ? 'Start a new count' : 'Count stock'}</button>
+      ${needs ? `<button class="btn-lg" data-act="replenish">Prepare order · ${needs} item${needs>1?'s':''} need attention</button>` : ''}
+    </div>
+
+    <div class="card tight">
+      ${rows.map(r => `
+        <div class="row">
+          <div class="name"><b>${esc(r.it.name)}</b><small>reorder at ${fmtQty(r.it.min)} · up to ${fmtQty(r.it.target)} ${esc(r.it.unit)} · ${esc(supName(r.it.supplier))}</small></div>
+          <div class="qty">${r.q === undefined ? '<span class="muted">—</span>' : esc(fmtQty(r.q)) + ' <span class="muted" style="font-weight:400">' + esc(r.it.unit) + '</span>'}</div>
+          <span class="pill p-${r.st}">${r.st}</span>
+        </div>`).join('')}
+    </div>
+
+    ${exceptions.length ? `<div class="banner">
+      <b class="hd">Threshold exceptions (${exceptions.length})</b>
+      <div class="muted">Fix these under Setup when you get a chance.</div>
+      <ul>${exceptions.map(e => `<li>${e}</li>`).join('')}</ul></div>` : ''}
+  `;
+  view.querySelectorAll('[data-act]').forEach(b => b.onclick = () => ({
+    count: () => { countDraft = blankCountDraft(); Storage.saveDraft(countDraft); go('count'); },
+    resume: () => { countDraft = Storage.draft(); go('count'); },
+    discard: () => { Storage.clearDraft(); render(); },
+    replenish: () => { repl = null; go('replenish'); }   // always rebuild from current stock
+  })[b.dataset.act]());
+}
+
+/* ==================================================================
+ * Screen — Count
+ * ================================================================== */
+let countDraft = null;
+const blankCountDraft = () => ({ lines: Object.fromEntries(ITEMS.map(i => [i.id, null])), note: '', saved_at: new Date().toISOString() });
+
+function renderCount() {
+  setHeader('Count stock', businessDate(), 'stock');
+  const { qty } = project();
+  const cats = [...new Set(ITEMS.map(i => i.cat))];
+
+  view.innerHTML = cats.map(cat => `
+    <div class="group-label">${esc(cat)}</div>
+    <div class="card tight">
+      ${ITEMS.filter(i => i.cat === cat).map(it => {
+        const prev = qty[it.id], val = countDraft.lines[it.id];
+        return `<div class="row count-row" data-row="${it.id}">
+          <div class="name"><b>${esc(it.name)}</b><small>${esc(it.unit)} · previously ${prev === undefined ? 'unknown' : fmtQty(prev)}</small></div>
+          ${prev === undefined ? '' : `<button class="btn-ghost btn-sm" data-same="${it.id}" data-val="${prev}">Same</button>`}
+          <input class="numin" inputmode="${it.step < 1 ? 'decimal' : 'numeric'}" value="${val === null ? '' : val}"
+                 placeholder="—" data-item="${it.id}" aria-label="${esc(it.name)} quantity in ${esc(it.unit)}">
+        </div>`;
+      }).join('')}
+    </div>`).join('') + `
+    <div class="group-label">Note (optional)</div>
+    <textarea id="count-note" placeholder="Anything worth recording about this count">${esc(countDraft.note)}</textarea>
+    <p class="muted" style="margin-top:14px">
+      Leave a field empty if you could not count it — empty means <b>unknown</b>, not zero.
+      Enter <b>0</b> when an item has run out. All ${ITEMS.length} items must be entered to complete.</p>`;
+
+  view.querySelectorAll('input[data-item]').forEach(inp => {
+    inp.addEventListener('input', onCountEntry);
+    inp.addEventListener('focus', () => inp.select());
+  });
+  view.querySelectorAll('[data-same]').forEach(b => b.onclick = () => {
+    const inp = view.querySelector(`input[data-item="${b.dataset.same}"]`);
+    inp.value = fmtQty(+b.dataset.val);
+    onCountEntry({ target: inp });
+  });
+  document.getElementById('count-note').addEventListener('input', e => { countDraft.note = e.target.value; persistCountDraft(); });
+  refreshCountFooter();
+}
+
+function parseEntry(item, raw) {
+  const s = String(raw).trim();
+  if (s === '') return { value: null, ok: true };
+  if (!/^\d+(\.\d+)?$/.test(s)) return { value: null, ok: false };
+  const n = parseFloat(s);
+  if (!isFinite(n) || n < 0 || !stepOk(item, n)) return { value: null, ok: false };
+  return { value: n, ok: true };
+}
+function onCountEntry(e) {
+  const item = byId(e.target.dataset.item);
+  const { value, ok } = parseEntry(item, e.target.value);
+  const row = e.target.closest('.count-row');
+  row.classList.toggle('invalid', !ok);
+  row.classList.toggle('done', ok && value !== null);
+  countDraft.lines[item.id] = ok ? value : null;
+  persistCountDraft();
+  refreshCountFooter();
+}
+let saveTimer = null;
+function persistCountDraft() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    if (!countDraft) return;              // the count was completed or abandoned mid-debounce
+    countDraft.saved_at = new Date().toISOString();
+    Storage.saveDraft(countDraft);
+  }, 250);
+}
+function refreshCountFooter() {
+  const entered = Object.values(countDraft.lines).filter(v => v !== null).length;
+  const invalid = view.querySelectorAll('.count-row.invalid').length;
+  setFooter('Complete count', entered === ITEMS.length && !invalid, completeCount,
+    `<b>${entered}</b> / ${ITEMS.length} entered` + (invalid ? ` · <span style="color:var(--reorder)">${invalid} invalid</span>` : ''));
+}
+
+async function completeCount() {
+  const today = businessDate();
+  const sameDay = project().counts.filter(o => businessDate(o.occurred_at) === today);
+  let supersedes = null;
+  if (sameDay.length) {
+    const r = await ask({
+      title: 'You already counted today',
+      body: 'A completed count for this date already exists. Which is this?',
+      buttons: [
+        { label: 'A deliberate recount', value: 'recount', cls: 'btn-primary' },
+        { label: "A correction of today's count", value: 'correct' },
+        { label: 'Go back', value: null, cls: 'btn-ghost' }
+      ]
+    });
+    if (!r.value) return;
+    if (r.value === 'correct') supersedes = sameDay[sameDay.length - 1].id;
+  }
+  const now = new Date().toISOString();
+  Storage.append({
+    id: uid('cnt'), schema: SCHEMA, type: 'COUNT', occurred_at: now, recorded_at: now,
+    seq: Storage.ops().length + 1, source: 'WEB', supersedes, note: countDraft.note || '',
+    lines: { ...countDraft.lines }
+  });
+  clearTimeout(saveTimer);
+  Storage.clearDraft();
+  countDraft = null;
+  go('stock');
+}
+
+/* ==================================================================
+ * Screen — Replenish (prepare order)
+ * ================================================================== */
+let repl = null;
+function renderReplenish() {
+  setHeader('Prepare order', '', 'stock');
+  const { qty } = project();
+  if (!repl) {
+    repl = {};
+    for (const it of ITEMS) {
+      const q = qty[it.id], st = statusOf(it, q);
+      if (st === 'UNKNOWN' || st === 'OK') continue;
+      repl[it.id] = { include: st === 'REORDER', qty: Math.max(0, it.target - q), supplier: it.supplier };
+    }
+  }
+  const cands = ITEMS.filter(it => repl[it.id]);
+  const unknown = ITEMS.filter(it => qty[it.id] === undefined);
+
+  if (!cands.length) {
+    view.innerHTML = `<div class="card center"><p class="muted">Nothing is at REORDER or LOW. Nothing to order.</p></div>`;
+    return;
+  }
+
+  view.innerHTML = `
+    <p class="muted">REORDER items are selected by default. Suggested quantity brings stock up to target — adjust anything before creating the order.</p>
+    <div class="card tight">
+      ${cands.map(it => {
+        const r = repl[it.id], st = statusOf(it, qty[it.id]);
+        return `<div class="row repl-row">
+          <input type="checkbox" class="chk" data-inc="${it.id}" ${r.include ? 'checked' : ''} aria-label="Include ${esc(it.name)}">
+          <div class="name">
+            <b>${esc(it.name)}</b>
+            <small>have ${fmtQty(qty[it.id])} · target ${fmtQty(it.target)} ${esc(it.unit)}</small>
+          </div>
+          <span class="pill p-${st}">${st}</span>
+          <div class="repl-ctrls">
+            <input class="numin" inputmode="${it.step<1?'decimal':'numeric'}" value="${fmtQty(r.qty)}" data-qty="${it.id}" aria-label="Quantity for ${esc(it.name)}">
+            <span class="muted">${esc(it.unit)} from</span>
+            <select data-sup="${it.id}" aria-label="Supplier for ${esc(it.name)}">
+              ${SUPPLIERS.filter(s => s.active).map(s => `<option value="${s.id}" ${s.id === r.supplier ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+            </select>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+    ${unknown.length ? `<div class="banner"><b class="hd">${unknown.length} item(s) UNKNOWN</b>
+      Excluded from suggestions until counted: ${unknown.map(i => esc(i.name)).join(', ')}.</div>` : ''}
+    <div id="repl-summary"></div>`;
+
+  view.querySelectorAll('[data-inc]').forEach(c => c.onchange = () => { repl[c.dataset.inc].include = c.checked; refreshReplenish(); });
+  view.querySelectorAll('[data-qty]').forEach(i => i.oninput = () => {
+    const it = byId(i.dataset.qty);
+    const p = parseEntry(it, i.value);
+    i.style.borderColor = p.ok && p.value !== null ? '' : 'var(--reorder)';
+    repl[it.id].qty = p.ok && p.value !== null ? p.value : 0;
+    refreshReplenish();
+  });
+  view.querySelectorAll('[data-sup]').forEach(s => s.onchange = () => { repl[s.dataset.sup].supplier = s.value; refreshReplenish(); });
+  refreshReplenish();
+}
+
+function replGroups() {
+  const groups = {};
+  for (const [item_id, r] of Object.entries(repl)) {
+    if (!r.include || !(r.qty > 0)) continue;
+    (groups[r.supplier] ||= []).push({ item_id, qty: r.qty });
+  }
+  return groups;
+}
+function refreshReplenish() {
+  const groups = replGroups();
+  const n = Object.keys(groups).length;
+  const lines = sum(Object.values(groups).map(g => g.length));
+  document.getElementById('repl-summary').innerHTML = n
+    ? `<div class="card"><h2 class="sec">Will create</h2>${Object.entries(groups).map(([s, g]) =>
+        `<div class="row"><div class="name"><b>${esc(supName(s))}</b><small>${g.length} line(s)</small></div></div>`).join('')}
+        <p class="muted" style="margin-top:8px">Each supplier gets its own independent order. Cancelling one does not affect the other.</p></div>`
+    : '';
+  setFooter(n > 1 ? `Create ${n} orders` : 'Create order', n > 0, createOrders,
+    n ? `<b>${lines}</b> line(s) · ${n} supplier${n > 1 ? 's' : ''}` : 'Nothing selected');
+}
+function createOrders() {
+  const { qty } = project();
+  const groups = replGroups();
+  const now = new Date().toISOString();
+  let first = null;
+  for (const [supplier_id, g] of Object.entries(groups)) {
+    const order = {
+      id: uid('ord'), schema: SCHEMA, supplier_id, confirmed: false, created_at: now,
+      ordered_at: null, ref: '', note: '',
+      lines: g.map(l => {
+        const it = byId(l.item_id);
+        return { id: uid('ln'), item_id: l.item_id, suggested: l.qty, ordered: l.qty, cancelled: 0,
+                 snapshot: { name: it.name, unit: it.unit, min: it.min, warn: it.warn, target: it.target, current: qty[l.item_id] } };
+      })
+    };
+    Storage.putOrder(order);
+    first ||= order.id;
+  }
+  repl = null;
+  go(Object.keys(groups).length === 1 ? 'order' : 'orders', { id: first });
+}
+
+/* ==================================================================
+ * Screen — Orders list
+ * ================================================================== */
+function renderOrders() {
+  setHeader('Orders');
+  const orders = Storage.orders().map(o => ({ o, st: orderState(o), bal: orderBalances(o) }))
+    .sort((a, b) => (isTerminal(a.st) - isTerminal(b.st)) || (a.o.created_at < b.o.created_at ? 1 : -1));
+
+  view.innerHTML = `
+    <div class="actions"><button class="btn-primary btn-lg" id="new-order">Prepare order</button></div>
+    ${orders.length ? `<div class="card tight">${orders.map(({ o, st, bal }) => `
+      <div class="row" data-open="${o.id}" style="cursor:pointer">
+        <div class="name">
+          <b>${esc(supName(o.supplier_id))}</b>
+          <small>${o.lines.length} line(s) · ${esc(fmtDateTime(o.created_at))}${o.ref ? ' · ref ' + esc(o.ref) : ''}</small>
+        </div>
+        <div class="qty muted" style="font-weight:400;font-size:13px">${bal.R}/${bal.O}</div>
+        <span class="pill p-${st}">${st.replace('_', ' ')}</span>
+      </div>`).join('')}</div>`
+    : `<div class="card center"><p class="muted">No orders yet.</p></div>`}`;
+
+  document.getElementById('new-order').onclick = () => { repl = null; go('replenish'); };
+  view.querySelectorAll('[data-open]').forEach(r => r.onclick = () => go('order', { id: r.dataset.open }));
+}
+
+/* ==================================================================
+ * Screen — Order detail
+ * ================================================================== */
+function getOrder(id) { return Storage.orders().find(o => o.id === id); }
+
+function renderOrderDetail() {
+  const order = getOrder(route.id);
+  if (!order) return go('orders');
+  const st = orderState(order), bal = orderBalances(order);
+  setHeader(supName(order.supplier_id), st.replace('_', ' '), 'orders');
+
+  const receipts = project().receipts.filter(r => r.order_id === order.id);
+  const allOps = Storage.ops();
+  const voidedIds = new Set(allOps.filter(o => o.type === 'RECEIPT_VOID').map(o => o.voids));
+  const allReceipts = allOps.filter(o => o.type === 'RECEIPT' && o.order_id === order.id);
+
+  view.innerHTML = `
+    <div class="card">
+      <h2 class="sec">Lines</h2>
+      ${bal.lines.map(l => `
+        <div class="row">
+          <div class="name">
+            <b>${esc(l.snapshot.name)}</b>
+            <small>ordered ${fmtQty(l.O)} ${esc(l.snapshot.unit)}${l.R ? ` · received ${fmtQty(l.R)}` : ''}${l.C ? ` · cancelled ${fmtQty(l.C)}` : ''}</small>
+          </div>
+          <div class="qty">${l.B > 0 ? fmtQty(l.B) + ' <span class="muted" style="font-weight:400">open</span>' : '<span class="muted">closed</span>'}</div>
+        </div>`).join('')}
+      <div class="row"><div class="name"><b>Total</b></div>
+        <div class="qty">${fmtQty(bal.R)} / ${fmtQty(bal.O)} received${bal.C ? `, ${fmtQty(bal.C)} cancelled` : ''}</div></div>
+    </div>
+
+    ${st === 'DRAFT' ? `
+      <div class="field"><label>Supplier reference (optional)</label>
+        <input type="text" id="ord-ref" value="${esc(order.ref)}" placeholder="Cart/quote number"></div>
+      <div class="actions">
+        <button class="btn-lg" data-act="copy">Copy list for supplier site</button>
+        <button class="btn-primary btn-lg" data-act="confirm">Mark ordered</button>
+        <button class="btn-ghost btn-danger" data-act="delete">Delete draft</button>
+      </div>`
+    : `<div class="actions">
+        <button data-act="copy">Copy list</button>
+        ${bal.B > 0 ? `<button class="btn-primary btn-lg" data-act="receive">Receive goods</button>` : ''}
+        ${bal.B > 0 ? `<button class="btn-ghost btn-danger" data-act="cancelrest">Cancel remaining ${fmtQty(bal.B)}</button>` : ''}
+      </div>`}
+
+    ${allReceipts.length ? `<div class="card">
+      <h2 class="sec">Receipts</h2>
+      ${allReceipts.map(r => {
+        const isVoid = voidedIds.has(r.id);
+        return `<div class="row">
+          <div class="name ${isVoid ? 'strike' : ''}">
+            <b>${fmtQty(sum(r.lines.map(l => l.qty)))} unit(s) received</b>
+            <small>${esc(fmtDateTime(r.occurred_at))}${isVoid ? ' · VOIDED' : ''}</small>
+          </div>
+          ${isVoid ? '' : `<button class="btn-ghost btn-sm btn-danger" data-void="${r.id}">Void</button>`}
+        </div>`;
+      }).join('')}
+      <p class="muted" style="margin-top:8px">Voiding leaves the original receipt visible and reverses its stock effect by replay — never by a negative entry.</p>
+    </div>` : ''}
+
+    ${order.note ? `<div class="card"><h2 class="sec">Note</h2>${esc(order.note)}</div>` : ''}
+    <p class="center muted">${st === 'DRAFT' ? 'Draft — no stock effect until received.' : 'Ordered ' + esc(fmtDateTime(order.ordered_at || order.created_at))}</p>`;
+
+  view.querySelectorAll('[data-act]').forEach(b => b.onclick = () => orderAction(b.dataset.act, order));
+  view.querySelectorAll('[data-void]').forEach(b => b.onclick = () => voidReceipt(order, b.dataset.void));
+}
+
+function orderText(order) {
+  const bal = orderBalances(order);
+  return `${supName(order.supplier_id)} — AHKE stationery order\n` +
+    bal.lines.filter(l => l.O > 0).map(l => `[ ] ${fmtQty(l.O)} ${l.snapshot.unit} — ${l.snapshot.name}`).join('\n');
+}
+
+async function orderAction(act, order) {
+  if (act === 'copy') {
+    const text = orderText(order);
+    try { await navigator.clipboard.writeText(text); await ask({ title: 'Copied', body: 'The list is on your clipboard.', buttons: [{ label: 'OK', value: 1, cls: 'btn-primary' }] }); }
+    catch { await ask({ title: 'Copy this list', body: `<pre class="mono" style="white-space:pre-wrap">${esc(text)}</pre>`, buttons: [{ label: 'Close', value: 1, cls: 'btn-primary' }] }); }
+  }
+  if (act === 'confirm') {
+    const ref = document.getElementById('ord-ref');
+    order.ref = ref ? ref.value.trim() : '';
+    order.confirmed = true;
+    order.ordered_at = new Date().toISOString();
+    Storage.putOrder(order);
+    render();
+  }
+  if (act === 'delete') {
+    const r = await ask({ title: 'Delete this draft?', body: 'A draft has no stock effect and is not kept in history.',
+      buttons: [{ label: 'Delete', value: 1, cls: 'btn-danger' }, { label: 'Keep', value: 0, cls: 'btn-ghost' }] });
+    if (r.value) { Storage.dropOrder(order.id); go('orders'); }
+  }
+  if (act === 'receive') go('receive', { id: order.id });
+  if (act === 'cancelrest') {
+    const bal = orderBalances(order);
+    const r = await ask({ title: `Cancel remaining ${fmtQty(bal.B)}?`,
+      body: bal.R > 0 ? 'The order will be CLOSED SHORT. Received quantities are unaffected.' : 'Nothing was received, so the order will be CANCELLED.',
+      buttons: [{ label: 'Cancel the balance', value: 1, cls: 'btn-danger' }, { label: 'Keep it open', value: 0, cls: 'btn-ghost' }] });
+    if (!r.value) return;
+    const fresh = getOrder(order.id), b2 = orderBalances(fresh);
+    fresh.lines.forEach(l => { const bl = b2.lines.find(x => x.id === l.id); l.cancelled = (l.cancelled || 0) + bl.B; });
+    Storage.putOrder(fresh);
+    render();
+  }
+}
+
+async function voidReceipt(order, receiptId) {
+  const r = await ask({ title: 'Void this receipt?',
+    body: 'The receipt stays visible in history. Stock is recalculated as if it never happened.',
+    field: { label: 'Reason (required)', placeholder: 'e.g. entered against the wrong order' },
+    buttons: [{ label: 'Void receipt', value: 1, cls: 'btn-danger', requireField: true }, { label: 'Keep it', value: 0, cls: 'btn-ghost' }] });
+  if (!r.value) return;
+  const now = new Date().toISOString();
+  Storage.append({ id: uid('vd'), schema: SCHEMA, type: 'RECEIPT_VOID', occurred_at: now, recorded_at: now,
+    seq: Storage.ops().length + 1, source: 'CORRECTION', voids: receiptId, reason: r.text, order_id: order.id });
+  render();
+}
+
+/* ==================================================================
+ * Screen — Receive
+ * ================================================================== */
+let recvDraft = null;
+function renderReceive() {
+  const order = getOrder(route.id);
+  if (!order) return go('orders');
+  const bal = orderBalances(order);
+  setHeader('Receive', supName(order.supplier_id), 'order', { id: order.id });
+
+  const open = bal.lines.filter(l => l.B > 0);
+  if (!recvDraft || recvDraft.order_id !== order.id) {
+    recvDraft = { order_id: order.id, qty: Object.fromEntries(open.map(l => [l.id, l.B])) };
+  }
+
+  view.innerHTML = `
+    <p class="muted">Defaults to the full outstanding quantity. Reduce anything that did not arrive — the rest stays open.</p>
+    <div class="card tight">
+      ${open.map(l => `
+        <div class="row">
+          <div class="name"><b>${esc(l.snapshot.name)}</b><small>${fmtQty(l.B)} ${esc(l.snapshot.unit)} outstanding</small></div>
+          <input class="numin" inputmode="${byId(l.item_id) && byId(l.item_id).step < 1 ? 'decimal' : 'numeric'}"
+                 value="${fmtQty(recvDraft.qty[l.id])}" data-recv="${l.id}" data-max="${l.B}" data-item="${l.item_id}"
+                 aria-label="Received quantity for ${esc(l.snapshot.name)}">
+        </div>`).join('')}
+    </div>
+    <p class="muted">Receiving updates stock immediately. A mistake is fixed with a void, not an edit.</p>`;
+
+  view.querySelectorAll('[data-recv]').forEach(i => i.oninput = () => {
+    const it = byId(i.dataset.item), max = +i.dataset.max;
+    const p = parseEntry(it, i.value);
+    const ok = p.ok && p.value !== null && p.value <= max + 1e-9;
+    i.style.borderColor = ok ? '' : 'var(--reorder)';
+    recvDraft.qty[i.dataset.recv] = ok ? p.value : NaN;
+    refreshReceiveFooter(open);
+  });
+  refreshReceiveFooter(open);
+}
+function refreshReceiveFooter(open) {
+  const vals = open.map(l => recvDraft.qty[l.id]);
+  const bad = vals.some(v => !isFinite(v));
+  const total = bad ? 0 : sum(vals);
+  setFooter('Confirm receipt', !bad && total > 0, confirmReceipt,
+    bad ? '<span style="color:var(--reorder)">Over-receipt or invalid</span>' : `<b>${fmtQty(total)}</b> unit(s)`);
+}
+function confirmReceipt() {
+  const order = getOrder(recvDraft.order_id);
+  const bal = orderBalances(order);
+  const lines = bal.lines
+    .filter(l => recvDraft.qty[l.id] > 0)
+    .map(l => ({ order_line_id: l.id, item_id: l.item_id, qty: Math.min(recvDraft.qty[l.id], l.B) }));
+  if (!lines.length) return;
+  const now = new Date().toISOString();
+  Storage.append({ id: uid('rcp'), schema: SCHEMA, type: 'RECEIPT', occurred_at: now, recorded_at: now,
+    seq: Storage.ops().length + 1, source: 'WEB', order_id: order.id, lines });
+  recvDraft = null;
+  go('order', { id: order.id });
+}
+
+/* ==================================================================
+ * Screen — History
+ * ================================================================== */
+function renderHistory() {
+  setHeader('History');
+  const ops = Storage.ops().slice().sort((a, b) => a.occurred_at < b.occurred_at ? 1 : a.occurred_at > b.occurred_at ? -1 : b.seq - a.seq);
+  const { excluded } = project();
+  const filter = route.filter || 'all';
+  const kinds = { all:'All', COUNT:'Counts', RECEIPT:'Receipts', RECEIPT_VOID:'Voids' };
+  const shown = ops.filter(o => filter === 'all' || o.type === filter);
+
+  view.innerHTML = `
+    <div class="actions inline">${Object.entries(kinds).map(([k, l]) =>
+      `<button class="btn-sm ${filter === k ? 'btn-primary' : ''}" data-filter="${k}">${l}</button>`).join('')}</div>
+
+    ${shown.length ? `<div class="card tight">${shown.map(o => {
+      const dead = excluded.has(o.id);
+      let title = '', sub = '';
+      if (o.type === 'COUNT') {
+        const n = Object.values(o.lines).filter(v => v !== null).length;
+        title = `Stock count · ${n} item(s)`;
+        sub = o.supersedes ? 'Correction of an earlier count'
+            : o.source === 'MIGRATION' ? 'imported from workbook' + (n < ITEMS.length ? ', partial' : '') + (o.note ? ' · ' + o.note : '')
+            : (o.note || '');
+      } else if (o.type === 'RECEIPT') {
+        title = `Receipt · ${fmtQty(sum(o.lines.map(l => l.qty)))} unit(s)`;
+        sub = o.lines.map(l => { const it = byId(l.item_id); return `${fmtQty(l.qty)} ${it ? it.name : l.item_id}`; }).join(', ');
+      } else if (o.type === 'RECEIPT_VOID') {
+        title = 'Receipt voided';
+        sub = o.reason || '';
+      }
+      return `<div class="row">
+        <div class="name ${dead ? 'strike' : ''}"><b>${esc(title)}</b>
+          <small>${esc(fmtDateTime(o.occurred_at))}${sub ? ' · ' + esc(sub) : ''}${dead ? (o.type === 'RECEIPT' ? ' · voided' : ' · superseded') : ''}</small></div>
+      </div>`;
+    }).join('')}</div>` : `<div class="card center"><p class="muted">Nothing recorded yet.</p></div>`}
+
+    <p class="center muted">${ops.length} operation(s). Nothing here is ever edited or deleted.</p>`;
+
+  view.querySelectorAll('[data-filter]').forEach(b => b.onclick = () => go('history', { filter: b.dataset.filter }));
+}
+
+/* ==================================================================
+ * Screen — Setup
+ * ================================================================== */
+function renderSetup() {
+  setHeader('Setup');
+  const { qty } = project();
+  view.innerHTML = `
+    <div class="card">
+      <h2 class="sec">Items</h2>
+      ${ITEMS.map(it => `<div class="row" data-item-edit="${it.id}" style="cursor:pointer">
+        <div class="name"><b>${esc(it.name)}</b>
+          <small>reorder ${fmtQty(it.min)} · warn ${fmtQty(it.warn)} · target ${fmtQty(it.target)} ${esc(it.unit)} · ${esc(supName(it.supplier))}</small></div>
+        <span class="muted">edit ›</span>
+      </div>`).join('')}
+    </div>
+
+    ${thresholdExceptions(qty).length ? `<div class="banner"><b class="hd">Threshold exceptions</b>
+      <ul>${thresholdExceptions(qty).map(e => `<li>${e}</li>`).join('')}</ul></div>` : ''}
+
+    <div class="card">
+      <h2 class="sec">Suppliers</h2>
+      ${SUPPLIERS.map(s => `<div class="row"><div class="name"><b>${esc(s.name)}</b><small>${esc(s.note || '')}</small></div>
+        <span class="pill ${s.active ? 'p-OK' : 'p-UNKNOWN'}">${s.active ? 'ACTIVE' : 'INACTIVE'}</span></div>`).join('')}
+    </div>
+
+    <div class="card">
+      <h2 class="sec">Backup</h2>
+      <p class="muted">Data lives in this browser only. Export regularly — clearing site data or losing the device loses everything.</p>
+      <div class="actions">
+        <button id="btn-export">Export backup (.json)</button>
+        <button class="btn-ghost" id="btn-import-trigger">Import backup</button>
+      </div>
+      <input type="file" id="importer" accept="application/json" class="hidden">
+      <p class="muted">${Storage.ops().length} operation(s) · ${Storage.orders().length} order(s)</p>
+    </div>`;
+
+  view.querySelectorAll('[data-item-edit]').forEach(r => r.onclick = () => editItem(r.dataset.itemEdit));
+  document.getElementById('btn-export').onclick = exportData;
+  document.getElementById('btn-import-trigger').onclick = () => document.getElementById('importer').click();
+  document.getElementById('importer').onchange = e => importData(e.target);
+}
+
+async function editItem(id) {
+  const it = byId(id);
+  const r = await ask({
+    title: it.name,
+    body: `<div class="grid2">
+      <div class="field"><label>Reorder point</label><input type="text" id="f-min" value="${it.min}"></div>
+      <div class="field"><label>Warn below</label><input type="text" id="f-warn" value="${it.warn}"></div>
+      <div class="field"><label>Order up to</label><input type="text" id="f-target" value="${it.target}"></div>
+      <div class="field"><label>Supplier</label><select id="f-sup">${SUPPLIERS.map(s =>
+        `<option value="${s.id}" ${s.id === it.supplier ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
+    </div><div id="f-err" style="color:var(--reorder);font-size:13px"></div>`,
+    buttons: [{ label: 'Save', value: 1, cls: 'btn-primary' }, { label: 'Cancel', value: 0, cls: 'btn-ghost' }]
+  });
+  if (!r.value) return;
+  const min = parseFloat(document.getElementById('f-min').value);
+  const warn = parseFloat(document.getElementById('f-warn').value);
+  const target = parseFloat(document.getElementById('f-target').value);
+  const sup = document.getElementById('f-sup').value;
+  if (![min, warn, target].every(n => isFinite(n) && n >= 0) || !(min <= warn) || !(warn < target)) {
+    await ask({ title: 'Not saved', body: 'Thresholds must satisfy <b>0 ≤ reorder ≤ warn &lt; target</b>.',
+      buttons: [{ label: 'Back', value: 1, cls: 'btn-primary' }] });
+    return editItem(id);
+  }
+  const items = Storage.items();
+  Object.assign(items.find(x => x.id === id), { min, warn, target, supplier: sup });
+  Storage.saveItems(items);
+  render();
+}
+
+/* ==================================================================
+ * Backup
+ * ================================================================== */
+function exportData() {
+  const blob = new Blob([JSON.stringify(Storage.exportAll(), null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `ahke-stock-${businessDate()}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function validateBackup(d) {
+  if (!d || typeof d !== 'object') throw new Error('not an object');
+  if (!Array.isArray(d.operations)) throw new Error('missing operations');
+  if (!Array.isArray(d.items) || !d.items.length) throw new Error('missing items');
+  if (!Array.isArray(d.suppliers) || !d.suppliers.length) throw new Error('missing suppliers');
+  const itemIds = new Set(d.items.map(i => i.id));
+  const opIds = new Set();
+  for (const o of d.operations) {
+    if (!o.id || !o.type || !o.occurred_at) throw new Error('malformed operation');
+    if (opIds.has(o.id)) throw new Error('duplicate operation id ' + o.id);
+    opIds.add(o.id);
+    if (o.type === 'COUNT') for (const k of Object.keys(o.lines || {})) if (!itemIds.has(k)) throw new Error('count references unknown item ' + k);
+    if (o.type === 'RECEIPT') for (const l of (o.lines || [])) if (!itemIds.has(l.item_id)) throw new Error('receipt references unknown item ' + l.item_id);
+  }
+  for (const o of d.operations) {
+    if (o.type === 'RECEIPT_VOID' && !opIds.has(o.voids)) throw new Error('void references a missing receipt');
+    if (o.type === 'COUNT' && o.supersedes && !opIds.has(o.supersedes)) throw new Error('correction references a missing count');
+  }
+  for (const ord of (d.orders || [])) {
+    if (!ord.id || !Array.isArray(ord.lines)) throw new Error('malformed order');
+    for (const l of ord.lines) if (!itemIds.has(l.item_id)) throw new Error('order references unknown item ' + l.item_id);
+  }
+  return { items: d.items.length, ops: d.operations.length, orders: (d.orders || []).length };
+}
+function importData(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    let stats;
+    try { stats = validateBackup(JSON.parse(reader.result)); }
+    catch (err) {
+      await ask({ title: 'Backup rejected', body: `Nothing was changed.<br><br><span class="mono">${esc(err.message)}</span>`,
+        buttons: [{ label: 'OK', value: 1, cls: 'btn-primary' }] });
+      input.value = ''; return;
+    }
+    const r = await ask({ title: 'Replace all data?',
+      body: `This file holds ${stats.items} items, ${stats.ops} operation(s) and ${stats.orders} order(s). Everything currently stored will be replaced.`,
+      buttons: [{ label: 'Replace', value: 1, cls: 'btn-danger' }, { label: 'Cancel', value: 0, cls: 'btn-ghost' }] });
+    if (r.value) { Storage.importAll(JSON.parse(reader.result)); reloadMaster(); go('stock'); }
+    input.value = '';
+  };
+  reader.readAsText(file);
+}
+
+window.addEventListener('beforeunload', e => {
+  if (countDraft && Object.values(countDraft.lines).some(v => v !== null)) { e.preventDefault(); e.returnValue = ''; }
+});
+
+render();
+
+// Offline support. Service workers need http(s) — localhost or HTTPS — so this
+// is skipped when the file is opened straight from disk.
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  navigator.serviceWorker.register('sw.js').catch(err => console.warn('Service worker not registered:', err));
+}
+// Ask the browser not to evict localStorage under storage pressure.
+if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
+</script>
+</body>
+</html>

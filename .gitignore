@@ -1,0 +1,7 @@
+# Company stock data — never publish
+workbook-import-*.json
+ahke-stock-*.json
+
+# Local tooling
+.claude/
+.omc/
