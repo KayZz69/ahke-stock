@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>AHKE Stock — sign in</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="theme-color" content="#1f5fd0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="AHKE Stock">
+<style>
+:root { --bg:#f6f7f9; --surface:#fff; --sunken:#f0f2f5; --line:#e2e5ea; --text:#16181d; --muted:#666e7a; --accent:#1f5fd0; --accent-fg:#fff; --bad:#c03030; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg:#14161a; --surface:#1d2026; --sunken:#171a1f; --line:#2e333c; --text:#e8eaee; --muted:#9aa2ae; --accent:#5b93f0; --accent-fg:#0d1117; --bad:#f0736b; }
+}
+* { box-sizing: border-box; }
+body { margin:0; min-height:100vh; display:grid; place-items:center; padding:20px;
+  background:var(--bg); color:var(--text); font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; }
+form { width:100%; max-width:360px; background:var(--surface); border:1px solid var(--line); border-radius:14px; padding:24px; }
+.logo { width:56px; height:56px; display:block; margin:0 auto 12px; }
+h1 { font-size:20px; text-align:center; margin:0 0 4px; }
+p.sub { text-align:center; color:var(--muted); margin:0 0 20px; font-size:14px; }
+label { display:block; font-size:13px; font-weight:600; color:var(--muted); margin-bottom:6px; }
+input { width:100%; font:inherit; font-size:17px; padding:12px; border-radius:10px; border:1.5px solid var(--line);
+  background:var(--sunken); color:var(--text); min-height:48px; }
+input:focus { outline:none; border-color:var(--accent); }
+button { width:100%; margin-top:14px; font:inherit; font-weight:600; font-size:17px; min-height:50px; border:0;
+  border-radius:10px; background:var(--accent); color:var(--accent-fg); cursor:pointer; }
+button:disabled { opacity:.5; }
+.err { color:var(--bad); font-size:14px; min-height:20px; margin-top:10px; text-align:center; }
+</style>
+</head>
+<body>
+<form id="f" autocomplete="on">
+  <img class="logo" src="icon.svg" alt="">
+  <h1>AHKE Stock</h1>
+  <p class="sub">Enter the password to continue.</p>
+  <label for="pw">Password</label>
+  <input id="pw" name="password" type="password" autocomplete="current-password" required autofocus>
+  <button id="go" type="submit">Sign in</button>
+  <div class="err" id="err" role="alert"></div>
+</form>
+<script>
+const f = document.getElementById('f'), pw = document.getElementById('pw'),
+      go = document.getElementById('go'), err = document.getElementById('err');
+f.addEventListener('submit', async e => {
+  e.preventDefault();
+  err.textContent = ''; go.disabled = true; go.textContent = 'Signing in…';
+  try {
+    const res = await fetch('/api/login', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin', body: JSON.stringify({ password: pw.value }) });
+    if (res.ok) { location.replace('/'); return; }
+    const data = await res.json().catch(() => ({}));
+    err.textContent = data.error || 'Sign-in failed.';
+    pw.select();
+  } catch {
+    err.textContent = 'No connection. Sign in once you are online.';
+  }
+  go.disabled = false; go.textContent = 'Sign in';
+});
+</script>
+</body>
+</html>

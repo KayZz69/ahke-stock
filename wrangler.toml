@@ -1,0 +1,17 @@
+name = "ahke-stock"
+main = "src/worker.js"
+compatibility_date = "2026-10-01"
+
+# The Worker runs first on every request, so it can check the session before
+# any page is served. Static files come from ./public through the ASSETS binding.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "ahke-stock"
+# Replace with the id printed by `npx wrangler d1 create ahke-stock` before deploying.
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"

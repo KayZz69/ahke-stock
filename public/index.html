@@ -152,6 +152,12 @@ dialog .actions { margin: 0; }
 .repl-ctrls { flex-basis: 100%; display: flex; align-items: center; gap: 8px; padding-left: 32px; }
 .repl-ctrls .numin { width: 72px; }
 .repl-ctrls select { flex: 1; min-width: 0; }
+.sync { min-height: 30px; padding: 4px 10px; font-size: 12px; border-radius: 999px; white-space: nowrap; color: var(--muted); }
+.sync::before { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--unknown); }
+.sync[data-state="synced"]::before { background: var(--ok); }
+.sync[data-state="offline"]::before, .sync[data-state="idle"]::before { background: var(--low); }
+.sync[data-state="error"]::before, .sync[data-state="auth"]::before { background: var(--reorder); }
+.sync[data-state="error"], .sync[data-state="auth"] { color: var(--reorder); }
 .hidden { display: none !important; }
 @media (min-width: 700px) { .desk-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; } }
 </style>
@@ -162,6 +168,7 @@ dialog .actions { margin: 0; }
   <div class="inner">
     <button class="btn-ghost btn-sm" id="btn-back" hidden>‹ Back</button>
     <h1 id="hdr-title">AHKE Stock <span class="sub" id="hdr-sub"></span></h1>
+    <button class="sync" id="sync-status" type="button" data-state="idle">…</button>
   </div>
 </header>
 
@@ -191,17 +198,16 @@ dialog .actions { margin: 0; }
 
 /* ==================================================================
  * Seed master data — from AHKE Stationery Stock.xlsx (26 Aug 2026).
- * Adjusted: Coffee reorder 0 -> 2 kg (target 4); targets for Paper cups,
+ * Adjusted: Coffee reorder 0 -> 3 kg, target 10 (as set in the workbook); targets for Paper cups,
  * Forks, Tassay, Sugar and Tea raised to the level actually held on 26 Aug.
- * Seeds only: once saved, the stored master is authoritative and
- * editable under Setup.
+ * Defaults only: edits under Setup are recorded as ITEM_UPDATED events.
  * ================================================================== */
 const SEED_SUPPLIERS = [
   { id: 'officeexpert', name: 'OfficeExpert', active: true, note: 'Web' },
   { id: 'metro',        name: 'METRO',        active: true, note: 'Web' }
 ];
 const SEED_ITEMS = [
-  { id:'coffee',   name:'Coffee',               cat:'Refreshments', unit:'kg',       min:2, warn:3,   target:4,  step:0.1, supplier:'officeexpert' },
+  { id:'coffee',   name:'Coffee',               cat:'Refreshments', unit:'kg',       min:3, warn:4.5, target:10, step:0.1, supplier:'officeexpert' },
   { id:'cups_pl',  name:'Plastic cups',         cat:'Refreshments', unit:'packs',    min:2, warn:3,   target:5,  step:1,   supplier:'officeexpert' },
   { id:'cups_pa',  name:'Paper cups',           cat:'Refreshments', unit:'packs',    min:2, warn:3,   target:10,  step:1,   supplier:'officeexpert' },
   { id:'forks',    name:'Plastic forks',        cat:'Refreshments', unit:'packs',    min:2, warn:3,   target:9,   step:1,   supplier:'officeexpert' },
@@ -215,55 +221,235 @@ const SEED_ITEMS = [
   { id:'paper_a4', name:'Svetocopy A4 Paper',   cat:'Office',       unit:'packages', min:3, warn:4.5, target:10, step:1,   supplier:'officeexpert' }
 ];
 const TZ = 'Asia/Almaty';
-const SCHEMA = 2;
+const SCHEMA = 3;
 
 /* ==================================================================
- * Storage — the entire persistence surface. A server or Sheet backend
- * swaps in here without the rest of the app changing.
+ * Storage — an append-only event log, kept in localStorage and synced
+ * with the server. Screens still see the same shapes as before
+ * (ops / orders / items); those are projections of the log.
+ *
+ *   stock:  COUNT, RECEIPT, RECEIPT_VOID
+ *   orders: ORDER_CREATED, ORDER_CONFIRMED, ORDER_CANCELLED, ORDER_DELETED
+ *   master: ITEM_UPDATED
+ *
+ * Events are immutable and carry their own id, so merging two devices'
+ * logs is a set union — nothing to reconcile.
  * ================================================================== */
+const STOCK_TYPES = new Set(['COUNT', 'RECEIPT', 'RECEIPT_VOID']);
+const DEVICE = localStorage.getItem('ahke.device') ||
+  (() => { const d = 'dev_' + Math.random().toString(36).slice(2, 10); localStorage.setItem('ahke.device', d); return d; })();
+const byTime = (a, b) => a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1
+  : (a.seq || 0) - (b.seq || 0) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+
 const Storage = {
-  K: { ops:'ahke.ops.v1', orders:'ahke.orders.v1', draft:'ahke.draft.v1',
-       items:'ahke.items.v1', suppliers:'ahke.suppliers.v1' },
+  K: { events: 'ahke.events.v3', pending: 'ahke.pending.v3', cursor: 'ahke.cursor.v3', draft: 'ahke.draft.v1' },
   _get(k, fallback) { try { const v = JSON.parse(localStorage.getItem(k)); return v === null ? fallback : v; } catch { return fallback; } },
   _set(k, v) { localStorage.setItem(k, JSON.stringify(v)); },
 
-  items()     { return this._get(this.K.items, null) || structuredClone(SEED_ITEMS); },
-  saveItems(v){ this._set(this.K.items, v); },
-  suppliers() { return this._get(this.K.suppliers, null) || structuredClone(SEED_SUPPLIERS); },
-  saveSuppliers(v) { this._set(this.K.suppliers, v); },
-
-  ops()  { return this._get(this.K.ops, []); },
-  append(op) {                                    // op.id doubles as the idempotency key
-    const ops = this.ops();
-    if (ops.some(o => o.id === op.id)) return op;
-    ops.push(op); this._set(this.K.ops, ops); return op;
+  _events: null, _ids: null,
+  events() {
+    if (!this._events) { this._events = this._get(this.K.events, []); this._ids = new Set(this._events.map(e => e.id)); }
+    return this._events;
   },
+  _save() { this._set(this.K.events, this._events); },
+  has(id) { this.events(); return this._ids.has(id); },
 
-  orders() { return this._get(this.K.orders, []); },
+  // A change made on this device: stored, queued for upload, sync nudged.
+  addEvent(ev) {
+    if (this.has(ev.id)) return ev;
+    ev = { device: DEVICE, ...ev };
+    this._events.push(ev); this._ids.add(ev.id); this._save();
+    const p = this._get(this.K.pending, []); p.push(ev.id); this._set(this.K.pending, p);
+    Sync.soon();
+    return ev;
+  },
+  // Events from the server: stored, not re-queued. Returns how many were new.
+  merge(remote) {
+    let n = 0;
+    for (const ev of remote) if (!this.has(ev.id)) { this._events.push(ev); this._ids.add(ev.id); n++; }
+    if (n) this._save();
+    return n;
+  },
+  pendingEvents() { const p = new Set(this._get(this.K.pending, [])); return this.events().filter(e => p.has(e.id)); },
+  ack(ids) { const s = new Set(ids); this._set(this.K.pending, this._get(this.K.pending, []).filter(id => !s.has(id))); },
+  cursor() { return this._get(this.K.cursor, 0); },
+  setCursor(c) { this._set(this.K.cursor, c); },
+
+  /* ---- the shapes the screens use ---- */
+  ops() { return this.events().filter(e => STOCK_TYPES.has(e.type)); },
+  append(op) { return this.addEvent(op); },
+
+  items() {
+    const items = structuredClone(SEED_ITEMS);
+    for (const e of this.events().filter(e => e.type === 'ITEM_UPDATED').sort(byTime)) {
+      const it = items.find(i => i.id === e.item_id);
+      if (it) Object.assign(it, e.changes);
+    }
+    return items;
+  },
+  saveItems(next) {
+    const cur = this.items();
+    for (const it of next) {
+      const was = cur.find(i => i.id === it.id); if (!was) continue;
+      const changes = {};
+      for (const k of ['min', 'warn', 'target', 'supplier']) if (it[k] !== was[k]) changes[k] = it[k];
+      if (Object.keys(changes).length) this.addEvent(newEvent('ITEM_UPDATED', { item_id: it.id, changes }));
+    }
+  },
+  suppliers() { return structuredClone(SEED_SUPPLIERS); },
+
+  orders() {
+    const map = new Map();
+    for (const e of this.events().filter(e => e.type.startsWith('ORDER_')).sort(byTime)) {
+      if (e.type === 'ORDER_CREATED') { if (!map.has(e.order.id)) map.set(e.order.id, structuredClone(e.order)); continue; }
+      const o = map.get(e.order_id); if (!o) continue;
+      if (e.type === 'ORDER_CONFIRMED') { o.confirmed = true; o.ordered_at = o.ordered_at || e.occurred_at; o.ref = e.ref ?? o.ref; }
+      if (e.type === 'ORDER_CANCELLED') for (const c of e.lines) {
+        const l = o.lines.find(x => x.id === c.line_id); if (l) l.cancelled = (l.cancelled || 0) + c.qty;
+      }
+      if (e.type === 'ORDER_DELETED') o._deleted = true;
+    }
+    return [...map.values()].filter(o => !(o._deleted && !o.confirmed));   // deleting only ever removes drafts
+  },
+  // Screens hand back a whole order; record only what changed.
   putOrder(order) {
-    const all = this.orders();
-    const i = all.findIndex(o => o.id === order.id);
-    if (i >= 0) all[i] = order; else all.push(order);
-    this._set(this.K.orders, all);
+    const cur = this.orders().find(o => o.id === order.id);
+    if (!cur) {
+      this.addEvent(newEvent('ORDER_CREATED', { order: { ...order, confirmed: false, ordered_at: null,
+        lines: order.lines.map(l => ({ ...l, cancelled: 0 })) } }));
+      if (order.confirmed) this.addEvent(newEvent('ORDER_CONFIRMED', { order_id: order.id, ref: order.ref || '' }));
+      return order;
+    }
+    if (order.confirmed && !cur.confirmed) this.addEvent(newEvent('ORDER_CONFIRMED', { order_id: order.id, ref: order.ref || '' }));
+    const lines = order.lines.map(l => {
+      const was = cur.lines.find(x => x.id === l.id);
+      return { line_id: l.id, qty: (l.cancelled || 0) - ((was && was.cancelled) || 0) };
+    }).filter(d => d.qty > 0);
+    if (lines.length) this.addEvent(newEvent('ORDER_CANCELLED', { order_id: order.id, lines }));
     return order;
   },
-  dropOrder(id) { this._set(this.K.orders, this.orders().filter(o => o.id !== id)); },
+  dropOrder(id) { this.addEvent(newEvent('ORDER_DELETED', { order_id: id })); },
 
   draft()      { return this._get(this.K.draft, null); },
   saveDraft(d) { this._set(this.K.draft, d); },
   clearDraft() { localStorage.removeItem(this.K.draft); },
 
   exportAll() {
-    return { schema: SCHEMA, exported_at: new Date().toISOString(), timezone: TZ,
-             items: this.items(), suppliers: this.suppliers(),
-             operations: this.ops(), orders: this.orders() };
-  },
-  importAll(d) {
-    this._set(this.K.items, d.items); this._set(this.K.suppliers, d.suppliers);
-    this._set(this.K.ops, d.operations); this._set(this.K.orders, d.orders || []);
-    this.clearDraft();
+    return { schema: SCHEMA, exported_at: new Date().toISOString(), timezone: TZ, events: this.events().slice().sort(byTime) };
   }
 };
+
+function newEvent(type, fields) {
+  const now = new Date().toISOString();
+  return { id: uid(type.toLowerCase().replace(/_/g, '').slice(0, 6)), schema: SCHEMA, type,
+           occurred_at: now, recorded_at: now, seq: Storage.events().length + 1, ...fields };
+}
+
+/* Older backups (and data saved by earlier versions on this device) hold
+ * operations + orders + items. Convert them to events with deterministic
+ * ids, so importing the same file on two devices never duplicates. */
+function legacyToEvents(d) {
+  const out = (d.operations || []).map(o => ({ ...o }));
+  const at = d.exported_at || new Date().toISOString();
+  for (const ord of d.orders || []) {
+    const created = ord.created_at || at;
+    out.push({ id: `mig_oc_${ord.id}`, schema: SCHEMA, type: 'ORDER_CREATED', occurred_at: created, recorded_at: at, seq: 0,
+      source: 'MIGRATION', order: { ...ord, confirmed: false, ordered_at: null, lines: ord.lines.map(l => ({ ...l, cancelled: 0 })) } });
+    if (ord.confirmed) out.push({ id: `mig_ocf_${ord.id}`, schema: SCHEMA, type: 'ORDER_CONFIRMED', occurred_at: ord.ordered_at || created,
+      recorded_at: at, seq: 1, source: 'MIGRATION', order_id: ord.id, ref: ord.ref || '' });
+    const cancelled = ord.lines.filter(l => l.cancelled > 0).map(l => ({ line_id: l.id, qty: l.cancelled }));
+    if (cancelled.length) out.push({ id: `mig_ocx_${ord.id}`, schema: SCHEMA, type: 'ORDER_CANCELLED', occurred_at: ord.ordered_at || created,
+      recorded_at: at, seq: 2, source: 'MIGRATION', order_id: ord.id, lines: cancelled });
+  }
+  for (const it of d.items || []) {
+    const seed = SEED_ITEMS.find(s => s.id === it.id); if (!seed) continue;
+    const changes = {};
+    for (const k of ['min', 'warn', 'target', 'supplier']) if (it[k] !== undefined && it[k] !== seed[k]) changes[k] = it[k];
+    if (!Object.keys(changes).length) continue;
+    const key = Object.entries(changes).map(([k, v]) => k + String(v).replace(/[^A-Za-z0-9]/g, '')).join('_');
+    out.push({ id: `mig_it_${it.id}_${key}`.slice(0, 100), schema: SCHEMA, type: 'ITEM_UPDATED',
+      occurred_at: '2026-01-01T00:00:00.000Z', recorded_at: at, seq: 0, source: 'MIGRATION', item_id: it.id, changes });
+  }
+  return out;
+}
+
+// One-off: carry data saved by the previous (local-only) version into the log.
+(function migrateLocalV2() {
+  if (localStorage.getItem('ahke.migrated.v3') || Storage.events().length) return;
+  const get = k => { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } };
+  const old = { operations: get('ahke.ops.v1') || [], orders: get('ahke.orders.v1') || [], items: get('ahke.items.v1') || [] };
+  if (old.operations.length || old.orders.length || old.items.length) for (const ev of legacyToEvents(old)) Storage.addEvent(ev);
+  localStorage.setItem('ahke.migrated.v3', '1');
+})();
+
+/* ==================================================================
+ * Sync — push pending events, pull everything after our cursor.
+ * Runs on load, shortly after any change, when the connection comes
+ * back, when the app is brought to the front, and every minute.
+ * Without a server (opened from disk or a plain static host) the app
+ * simply stays local.
+ * ================================================================== */
+const Sync = {
+  state: 'idle', last: null, error: '', timer: null, running: false, again: false,
+  soon(ms = 400) { clearTimeout(this.timer); this.timer = setTimeout(() => this.run(), ms); },
+  set(state) { this.state = state; renderSyncStatus(); },
+  async run() {
+    if (this.running) { this.again = true; return; }
+    if (!location.protocol.startsWith('http')) return this.set('local');
+    this.running = true;
+    let pulled = 0;
+    try {
+      for (let round = 0; round < 50; round++) {
+        const batch = Storage.pendingEvents().slice(0, 200);
+        const res = await fetch('/api/sync', {
+          method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ since: Storage.cursor(), events: batch })
+        });
+        if (res.status === 401) { this.set('auth'); return; }
+        if ([404, 405, 501].includes(res.status)) { this.set('local'); return; }   // no server here
+        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'HTTP ' + res.status);
+        const data = await res.json();
+        Storage.ack(batch.map(e => e.id));
+        pulled += Storage.merge(data.events);
+        Storage.setCursor(data.cursor);
+        if (!data.more && !Storage.pendingEvents().length) break;
+      }
+      this.last = new Date().toISOString();
+      this.error = '';
+      this.set('synced');
+      if (pulled) refreshAfterSync();
+    } catch (err) {
+      this.error = err.message;
+      // fetch() rejects with a TypeError when the network is unreachable — weak signal
+      // often leaves navigator.onLine true, so treat that as offline, not as a failure.
+      this.set(navigator.onLine === false || err instanceof TypeError ? 'offline' : 'error');
+    } finally {
+      this.running = false;
+      if (this.again) { this.again = false; this.soon(); }
+    }
+  }
+};
+
+// Re-draw with new data, but never under someone's fingers.
+function refreshAfterSync() {
+  if (dlg.open) return;
+  if (['stock', 'orders', 'order', 'history', 'setup'].includes(route.name)) render();
+}
+
+function renderSyncStatus() {
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  const pending = Storage.pendingEvents().length;
+  const s = Sync.state;
+  el.dataset.state = s;
+  el.textContent = s === 'synced' ? 'Synced'
+    : s === 'offline' ? `Offline${pending ? ' · ' + pending + ' to send' : ''}`
+    : s === 'auth' ? 'Sign in to sync'
+    : s === 'error' ? 'Sync failed · retry'
+    : s === 'local' ? 'This device only'
+    : 'Syncing…';
+  el.title = s === 'synced' && Sync.last ? 'Last synced ' + fmtDateTime(Sync.last) : (Sync.error || '');
+}
 
 /* --------------------------- state / helpers --------------------------- */
 let ITEMS = Storage.items(), SUPPLIERS = Storage.suppliers();
@@ -303,8 +489,7 @@ function project() {
   const voided     = new Set(ops.filter(o => o.type === 'RECEIPT_VOID').map(o => o.voids).filter(Boolean));
   const excluded   = new Set([...superseded, ...voided]);
 
-  const live = ops.filter(o => !excluded.has(o.id))
-    .sort((a, b) => a.occurred_at < b.occurred_at ? -1 : a.occurred_at > b.occurred_at ? 1 : a.seq - b.seq);
+  const live = ops.filter(o => !excluded.has(o.id)).sort(byTime);
 
   const qty = {};                 // absent = UNKNOWN
   let lastCount = null;
@@ -363,7 +548,8 @@ function receivedByLine(orderId) {
 function orderBalances(order) {
   const rec = receivedByLine(order.id);
   const lines = order.lines.map(l => {
-    const R = rec[l.id] || 0, C = l.cancelled || 0, O = l.ordered || 0;
+    const O = l.ordered || 0, R = rec[l.id] || 0;
+    const C = Math.min(l.cancelled || 0, Math.max(0, O - R));   // clamp: concurrent cancels never exceed the balance
     return { ...l, R, C, O, B: Math.max(0, O - R - C) };
   });
   const O = sum(lines.map(l => l.O)), R = sum(lines.map(l => l.R)), C = sum(lines.map(l => l.C));
@@ -1016,19 +1202,45 @@ function renderSetup() {
 
     <div class="card">
       <h2 class="sec">Backup</h2>
-      <p class="muted">Data lives in this browser only. Export regularly — clearing site data or losing the device loses everything.</p>
+      <p class="muted">${Sync.state === 'local'
+        ? 'Data lives in this browser only. Export regularly — clearing site data or losing the device loses everything.'
+        : 'Data syncs across your devices through the server. An export is still a useful offline copy.'}</p>
       <div class="actions">
         <button id="btn-export">Export backup (.json)</button>
         <button class="btn-ghost" id="btn-import-trigger">Import backup</button>
       </div>
       <input type="file" id="importer" accept="application/json" class="hidden">
-      <p class="muted">${Storage.ops().length} operation(s) · ${Storage.orders().length} order(s)</p>
-    </div>`;
+      <p class="muted">${Storage.ops().length} stock record(s) · ${Storage.orders().length} order(s) · ${Storage.pendingEvents().length} waiting to sync</p>
+    </div>
+
+    ${Sync.state !== 'local' ? `<div class="card">
+      <h2 class="sec">Account</h2>
+      <p class="muted">Signed in on this device. Signing out keeps the data here; it syncs again after you sign back in.</p>
+      <div class="actions"><button class="btn-ghost btn-danger" id="btn-logout">Sign out</button></div>
+    </div>` : ''}`;
 
   view.querySelectorAll('[data-item-edit]').forEach(r => r.onclick = () => editItem(r.dataset.itemEdit));
   document.getElementById('btn-export').onclick = exportData;
   document.getElementById('btn-import-trigger').onclick = () => document.getElementById('importer').click();
   document.getElementById('importer').onchange = e => importData(e.target);
+  const lo = document.getElementById('btn-logout');
+  if (lo) lo.onclick = async () => {
+    const pending = Storage.pendingEvents().length;
+    const r = await ask({ title: 'Sign out?',
+      body: 'You will need the password to sign back in on this device.<br><br>' +
+        (pending ? `<b>${pending} change(s) have not synced yet</b>, so this device cannot be erased until they do.`
+                 : 'Choose <b>erase</b> on a shared or lost device: it removes the stock data and the offline copy from this device only. Everything stays on the server.'),
+      buttons: [{ label: 'Sign out', value: 'keep', cls: 'btn-danger' },
+                ...(pending ? [] : [{ label: 'Sign out and erase this device', value: 'erase', cls: 'btn-danger' }]),
+                { label: 'Cancel', value: 0, cls: 'btn-ghost' }] });
+    if (!r.value) return;
+    await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' }).catch(() => {});
+    if (r.value === 'erase' && !Storage.pendingEvents().length) {
+      Object.keys(localStorage).filter(k => k.startsWith('ahke.')).forEach(k => localStorage.removeItem(k));
+      if (window.caches) for (const k of await caches.keys()) await caches.delete(k);
+    }
+    location.replace('/login');
+  };
 }
 
 async function editItem(id) {
@@ -1071,46 +1283,57 @@ function exportData() {
   a.click();
   URL.revokeObjectURL(a.href);
 }
-function validateBackup(d) {
+function backupEvents(d) {
   if (!d || typeof d !== 'object') throw new Error('not an object');
+  if (Array.isArray(d.events)) return d.events;
   if (!Array.isArray(d.operations)) throw new Error('missing operations');
-  if (!Array.isArray(d.items) || !d.items.length) throw new Error('missing items');
-  if (!Array.isArray(d.suppliers) || !d.suppliers.length) throw new Error('missing suppliers');
-  const itemIds = new Set(d.items.map(i => i.id));
-  const opIds = new Set();
-  for (const o of d.operations) {
-    if (!o.id || !o.type || !o.occurred_at) throw new Error('malformed operation');
-    if (opIds.has(o.id)) throw new Error('duplicate operation id ' + o.id);
-    opIds.add(o.id);
-    if (o.type === 'COUNT') for (const k of Object.keys(o.lines || {})) if (!itemIds.has(k)) throw new Error('count references unknown item ' + k);
-    if (o.type === 'RECEIPT') for (const l of (o.lines || [])) if (!itemIds.has(l.item_id)) throw new Error('receipt references unknown item ' + l.item_id);
+  return legacyToEvents(d);
+}
+const EVENT_TYPES = new Set(['COUNT', 'RECEIPT', 'RECEIPT_VOID', 'ORDER_CREATED', 'ORDER_CONFIRMED', 'ORDER_CANCELLED', 'ORDER_DELETED', 'ITEM_UPDATED']);
+function validateBackup(d) {
+  const events = backupEvents(d);
+  const itemIds = new Set(SEED_ITEMS.map(i => i.id));
+  const ids = new Set();
+  for (const e of events) {
+    if (!e || !e.id || !e.type || !e.occurred_at) throw new Error('malformed record');
+    if (!/^[A-Za-z0-9_-]{1,100}$/.test(e.id)) throw new Error('bad record id ' + String(e.id).slice(0, 40));
+    if (!EVENT_TYPES.has(e.type)) throw new Error('unknown record type ' + e.type);
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/.test(e.occurred_at)) throw new Error('bad timestamp on ' + e.id);
+    if (ids.has(e.id)) throw new Error('duplicate record id ' + e.id);
+    ids.add(e.id);
+    if (e.type === 'COUNT') for (const k of Object.keys(e.lines || {})) if (!itemIds.has(k)) throw new Error('count references unknown item ' + k);
+    if (e.type === 'RECEIPT') for (const l of (e.lines || [])) if (!itemIds.has(l.item_id)) throw new Error('receipt references unknown item ' + l.item_id);
+    if (e.type === 'ITEM_UPDATED' && !itemIds.has(e.item_id)) throw new Error('update references unknown item ' + e.item_id);
+    if (e.type === 'ORDER_CREATED') for (const l of (e.order && e.order.lines) || []) if (!itemIds.has(l.item_id)) throw new Error('order references unknown item ' + l.item_id);
   }
-  for (const o of d.operations) {
-    if (o.type === 'RECEIPT_VOID' && !opIds.has(o.voids)) throw new Error('void references a missing receipt');
-    if (o.type === 'COUNT' && o.supersedes && !opIds.has(o.supersedes)) throw new Error('correction references a missing count');
+  const known = id => ids.has(id) || Storage.has(id);
+  for (const e of events) {
+    if (e.type === 'RECEIPT_VOID' && !known(e.voids)) throw new Error('void references a missing receipt');
+    if (e.type === 'COUNT' && e.supersedes && !known(e.supersedes)) throw new Error('correction references a missing count');
   }
-  for (const ord of (d.orders || [])) {
-    if (!ord.id || !Array.isArray(ord.lines)) throw new Error('malformed order');
-    for (const l of ord.lines) if (!itemIds.has(l.item_id)) throw new Error('order references unknown item ' + l.item_id);
-  }
-  return { items: d.items.length, ops: d.operations.length, orders: (d.orders || []).length };
+  return { events, fresh: events.filter(e => !Storage.has(e.id)).length };
 }
 function importData(input) {
   const file = input.files[0];
   if (!file) return;
   const reader = new FileReader();
   reader.onload = async () => {
-    let stats;
-    try { stats = validateBackup(JSON.parse(reader.result)); }
+    let result;
+    try { result = validateBackup(JSON.parse(reader.result)); }
     catch (err) {
       await ask({ title: 'Backup rejected', body: `Nothing was changed.<br><br><span class="mono">${esc(err.message)}</span>`,
         buttons: [{ label: 'OK', value: 1, cls: 'btn-primary' }] });
       input.value = ''; return;
     }
-    const r = await ask({ title: 'Replace all data?',
-      body: `This file holds ${stats.items} items, ${stats.ops} operation(s) and ${stats.orders} order(s). Everything currently stored will be replaced.`,
-      buttons: [{ label: 'Replace', value: 1, cls: 'btn-danger' }, { label: 'Cancel', value: 0, cls: 'btn-ghost' }] });
-    if (r.value) { Storage.importAll(JSON.parse(reader.result)); reloadMaster(); go('stock'); }
+    if (!result.fresh) {
+      await ask({ title: 'Nothing new', body: `All ${result.events.length} record(s) in this file are already here.`,
+        buttons: [{ label: 'OK', value: 1, cls: 'btn-primary' }] });
+      input.value = ''; return;
+    }
+    const r = await ask({ title: 'Add this backup?',
+      body: `${result.fresh} of ${result.events.length} record(s) are new and will be added${Sync.state === 'local' ? '' : ' and synced to your other devices'}. Records already here are skipped; nothing is deleted.`,
+      buttons: [{ label: 'Add', value: 1, cls: 'btn-primary' }, { label: 'Cancel', value: 0, cls: 'btn-ghost' }] });
+    if (r.value) { for (const e of result.events) Storage.addEvent(e); reloadMaster(); go('stock'); }
     input.value = '';
   };
   reader.readAsText(file);
@@ -1121,6 +1344,16 @@ window.addEventListener('beforeunload', e => {
 });
 
 render();
+renderSyncStatus();
+document.getElementById('sync-status').addEventListener('click', () => {
+  if (Sync.state === 'auth') location.href = '/login';   // session ended: sign in again, local data stays
+  else Sync.run();
+});
+Sync.run();
+window.addEventListener('online', () => Sync.soon(0));
+window.addEventListener('offline', () => Sync.set('offline'));
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') Sync.soon(0); });
+setInterval(() => { if (document.visibilityState === 'visible') Sync.run(); }, 60000);
 
 // Offline support. Service workers need http(s) — localhost or HTTPS — so this
 // is skipped when the file is opened straight from disk.

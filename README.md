@@ -1,44 +1,76 @@
 # AHKE Stock
 
-Stock tool for the AHKE stationery cupboard. Static files, no dependencies, no build
-step. Works offline once loaded and installs to a phone home screen.
+Stock tool for the AHKE stationery cupboard. One Cloudflare Worker serves the app and an
+append-only event log in D1, all behind one password. Works offline, installs to a phone
+home screen, and syncs between devices.
 
-**Live:** https://kayzz69.github.io/ahke-stock/ (GitHub Pages, HTTPS)
+## How it fits together
 
-## Running it
+| Path | What it is |
+|---|---|
+| `public/` | the app: `index.html`, `login.html`, service worker, manifest, icons |
+| `src/worker.js` | the Worker: password check, sessions, `/api/sync`, serves `public/` |
+| `migrations/` | D1 schema — `events` table and login rate-limit table |
+| `wrangler.toml` | Cloudflare config |
 
-Serve the folder:
+**Access.** Every page and all data need a session. Only the login page and the install
+files (manifest, icons, service worker) are public; none contain stock data. The session is
+a signed `HttpOnly; Secure; SameSite=Lax` cookie valid for 180 days. Ten wrong passwords
+from one IP lock that IP out for 15 minutes.
+
+**Sync.** Every change — a count, a receipt, an order step, an item edit — is an immutable
+record with its own id. Each device sends what it has that the server lacks and receives what
+it is missing, so merging is a set union with nothing to reconcile. It runs on load, shortly
+after each change, when the connection returns, when the app comes to the front, and every
+minute. The header shows *Synced*, *Offline · N to send*, or *Sign in to sync*.
+
+**Offline.** The app opens from its offline copy without signal; changes queue up and send
+when the connection returns. Two devices editing offline merge cleanly: both counts are kept
+(the later one sets current stock), and two cancellations of the same balance never cancel
+more than was open.
+
+**Signing out** keeps the data on that device by default. *Sign out and erase this device*
+removes the stock data and offline copy from it (refused while changes are still unsent).
+
+## Deploying to Cloudflare
+
+One-time setup, from this folder:
 
 ```bash
-python -m http.server 8765
+npm install
+npx wrangler login                     # opens Cloudflare in the browser
+npx wrangler d1 create ahke-stock      # copy the database_id it prints into wrangler.toml
+npm run db:remote                      # create the tables
+npx wrangler secret put APP_PASSWORD   # type the password you want (not stored in git)
+node -e "process.stdout.write(require('crypto').randomBytes(32).toString('base64url'))" | npx wrangler secret put SESSION_SECRET
+npm run deploy                         # prints the https://ahke-stock.<you>.workers.dev URL
 ```
 
-then open `http://localhost:8765`. Opening `index.html` straight from disk also works,
-but without offline support (service workers need `http(s)`).
+Later updates are just `npm run deploy`. Change the password with
+`npx wrangler secret put APP_PASSWORD`; set a new `SESSION_SECRET` the same way to sign every
+device out.
+
+## Local development
+
+```bash
+npm install
+npm run db:local
+npm run dev            # http://localhost:8787
+```
+
+Local secrets live in `.dev.vars` (gitignored): `APP_PASSWORD=...` and `SESSION_SECRET=...`.
 
 ### On your phone
 
-The phone has to reach the files over **HTTPS** — a service worker will not register on
-plain `http://` anywhere except `localhost`. Once hosted (e.g. on the Hetzner VPS behind
-Caddy or nginx with a Let's Encrypt certificate, serving this folder as-is):
+Open the Worker URL, sign in, then add it to the home screen:
 
-- **Android / Chrome:** open the URL → menu → *Install app* (or *Add to Home screen*)
-- **iPhone / Safari:** open the URL → Share → *Add to Home Screen*
+- **Android / Chrome:** menu → *Install app*
+- **iPhone / Safari:** Share → *Add to Home Screen* (sign in once more inside the installed
+  app — iOS keeps its cookies separate from Safari)
 
-After the first visit it opens with no signal. When online it always fetches the latest
-version, so updates arrive without reinstalling.
-
-**Data stays on the device it was entered on.** The phone and a laptop browser have
-separate data. Use Setup → Export / Import to move it, and export regularly as a backup.
-
-## Files
-
-| File | Purpose |
-|---|---|
-| `index.html` | the whole app |
-| `sw.js` | service worker — network-first, falls back to cache offline |
-| `manifest.webmanifest` | home-screen install metadata |
-| `icon.svg`, `icon-192.png`, `icon-512.png` | app icons |
+To load the workbook history, use Setup → Import with `workbook-import-2026-10-19.json` on
+any one signed-in device; it syncs to the others. Import only ever adds records — anything
+already present is skipped, nothing is deleted.
 
 ## What it does
 
@@ -99,33 +131,64 @@ Result reconciles exactly with the workbook: every current quantity matches, and
 split is 1 `REORDER` (Plastic plates) / 2 `LOW` (Tassay water, Milk) / 9 `OK`.
 
 `workbook-import-2026-10-19.json` is the import file. Setup → Import on any device loads
-the same starting point (it replaces whatever that device holds).
+the same starting point (it adds to what is there; nothing is replaced).
 
 ## Decisions baked in
 
-**Local-first.** There is no Google Workspace domain, so Apps Script cannot restrict a web
-app audience by domain, cannot reliably report the operator's identity, and cannot both
-authenticate a user and keep them out of the backing Sheet. Data lives in the browser
-(`localStorage`, with persistent storage requested) and the whole persistence surface is the
-`Storage` object — a server or Sheet backend swaps in there without the UI changing.
+**Cloudflare, not Google Apps Script.** There is no Google Workspace domain, so Apps Script
+cannot restrict an audience by domain or reliably identify the user. A Worker with one
+password and a signed cookie is simpler and fails closed: with `APP_PASSWORD` or
+`SESSION_SECRET` unset it refuses every request.
 
-Accepted deliberately: device loss or cleared site data loses the history (hence export);
-only the device holder sees stock; timestamps are device time.
-
-**No `PENDING`/`ABANDONED` state machine, no script locks.** Single-threaded local writes
-have no partial-write window. Operation ids double as idempotency keys.
+**No `PENDING`/`ABANDONED` state machine, no locks.** Each upload is one atomic D1 batch of
+`INSERT OR IGNORE`, and record ids are idempotency keys, so a retried or doubled upload can
+never duplicate anything. Timestamps are device time.
 
 **Opening balance.** A fresh install starts every item `UNKNOWN` until the first count. The
 workbook import above was a deliberate exception, chosen because no physical count was possible.
+
+**Local-first with sync.** The device's copy of the log (localStorage) is what the screens
+read, so the app is instant and works offline. The server is the meeting point between
+devices and the off-device backup, not a dependency for using the app.
 
 **Immutable journal.** Counts, receipts and voids are never edited or deleted. Stock is
 replayed from the journal: `COUNT` is an absolute baseline, `RECEIPT` a delta,
 `RECEIPT_VOID` excludes the receipt it references.
 
-**Orders are documents, not stock events.** Received quantities are derived from the
-receipt operations referencing each line, so stock and orders cannot disagree.
+**Orders are built from records too.** An order is the replay of its `ORDER_CREATED`,
+`ORDER_CONFIRMED`, `ORDER_CANCELLED` and `ORDER_DELETED` records; received quantities come
+from the receipts referencing each line, so stock and orders cannot disagree. Item edits are
+`ITEM_UPDATED` records on top of the defaults in `index.html`.
 
 ## Verified
+
+**Server (scripted, 25/25 against the local Worker):** pages and `/api/sync` refuse access
+without a session; login page and install files are public; wrong password → 401; correct
+password → `HttpOnly; Secure; SameSite=Lax` cookie; tampered or expired cookies refused;
+cross-site requests refused; unknown record types and injection-shaped ids rejected;
+resending the same record never duplicates it; 10 failures lock an IP out (others
+unaffected); logout clears the cookie; security headers present.
+
+**Two devices** (`localhost` and `127.0.0.1`, which keep separate storage and cookies):
+
+- device A imports the workbook backup (old format, converted) → 32 records uploaded →
+  device B signs in and pulls the identical stock picture
+- B creates and confirms an order → A sees it with its reference → A receives 2 of 3 →
+  B sees `PARTIALLY RECEIVED` and the stock change
+- B edits an item target → A picks it up and its warning clears
+- both go offline, both cancel the same remaining pack and both record a count → on
+  reconnect both converge on the same 40 records: order `CLOSED SHORT` with the pack
+  cancelled once, both counts kept, the later one setting stock
+- server stopped → B reopens from its offline copy, records a count ("Offline · 1 to
+  send") → server back → sent → A sees it
+- sign out → login page; app and API refuse; local data kept. *Sign out and erase* → local
+  data and offline app copy gone → sign in again → everything restored from the server
+
+The browser automation will not type into password fields, so test sign-ins went through
+the login API with a throwaway local password; the login page's error message was checked
+with a dummy value.
+
+**Earlier, single-device (before sync):**
 
 **Clicked through at phone size (375 × 812)**, every dialog included:
 

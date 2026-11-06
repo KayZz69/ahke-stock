@@ -2,7 +2,7 @@
   "name": "AHKE Stock",
   "short_name": "AHKE Stock",
   "description": "Stationery stock counts, orders and receipts for AHKE.",
-  "start_url": "./index.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

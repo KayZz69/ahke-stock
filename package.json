@@ -1,0 +1,14 @@
+{
+  "name": "ahke-stock",
+  "private": true,
+  "description": "Offline-first stationery stock app for AHKE, on a Cloudflare Worker + D1",
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "db:local": "wrangler d1 migrations apply ahke-stock --local",
+    "db:remote": "wrangler d1 migrations apply ahke-stock --remote",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.158.0"
+  }
+}

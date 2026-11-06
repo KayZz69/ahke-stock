@@ -5,3 +5,8 @@ ahke-stock-*.json
 # Local tooling
 .claude/
 .omc/
+
+# Cloudflare / Node
+node_modules/
+.wrangler/
+.dev.vars
