@@ -79,11 +79,13 @@ already present is skipped, nothing is deleted.
 **Stock** — current quantity and status for all 12 items, the age of the last count, and
 buttons to count or prepare an order.
 
-**Count stock** — all 12 items in one mobile-first pass. Previous quantity is shown but
+**Count stock** — every current item in one mobile-first pass. Tap an item's name to rename,
+change or remove it mid-count; **+ Add item** at the end adds one on the spot (it joins the
+count and needs a number before you can finish — that first count is its starting quantity). Previous quantity is shown but
 never silently copied; `Same` is an explicit tap. Blank means **unknown**, `0` means **none
 left**. Entries must fall on the item's quantity step (Coffee 0.1 kg, everything else whole
 units). The draft autosaves and has no effect on live stock until completed; completion is
-blocked until all 12 items are entered. A second completed count on the same Asia/Almaty
+blocked until every item is entered. A second completed count on the same Asia/Almaty
 date asks: deliberate recount, or correction of the earlier one.
 
 **Prepare order** — `REORDER` items selected by default, `LOW` items one tap away.
@@ -102,8 +104,12 @@ original stays visible and stock is recalculated by replay, never by a negative 
 **History** — every operation, filterable; superseded counts and voided receipts are struck
 through, never removed.
 
-**Setup** — edit thresholds and preferred supplier per item (validated as
-`0 ≤ reorder ≤ warn < target`), and export/import the backup. Imports are validated first
+**Setup** — add, edit and remove items: name, category, unit, whole or decimal counting,
+reorder / warn / order-up-to (validated as `0 ≤ reorder ≤ warn < target`; warn defaults to
+1.5 × reorder) and supplier. The unit locks once an item has been counted or ordered, so its
+history keeps meaning the same thing. Removing hides an item from counts, the stock list
+and order suggestions but keeps its history; it is refused while the item is still open on an
+order, and **Removed items** lets you restore it. Also export/import the backup. Imports are validated first
 and rejected without touching stored data if anything is malformed.
 
 ## Master data
@@ -160,9 +166,26 @@ replayed from the journal: `COUNT` is an absolute baseline, `RECEIPT` a delta,
 **Orders are built from records too.** An order is the replay of its `ORDER_CREATED`,
 `ORDER_CONFIRMED`, `ORDER_CANCELLED` and `ORDER_DELETED` records; received quantities come
 from the receipts referencing each line, so stock and orders cannot disagree. Item edits are
-`ITEM_UPDATED` records on top of the defaults in `index.html`.
+`ITEM_UPDATED` records on top of the defaults in `index.html`; new items are `ITEM_ADDED`, and
+removal is an `ITEM_UPDATED` setting `active: false`, so nothing is ever deleted.
+
+**Re-sync safety.** The database carries a random identity (`meta.epoch`). If a device sees a
+different identity, or the server has fewer records than the device has already synced, the
+device re-sends its whole history — so a recreated or restored database refills itself from
+any device, with no duplicates.
 
 ## Verified
+
+**Items (scripted through the real dialogs, two devices):** add with missing fields, a
+duplicate name and bad thresholds each refused with a specific message, typed values kept;
+valid add syncs and starts `UNKNOWN`. Mid-count: a new item shows "new — no count yet" and
+blocks completion until entered; adding keeps you on the count with typed values intact;
+renaming keeps the entered number; removing drops it from the count and the total; the
+finished count holds current items only. Removal refused while 8 packs are open on an order;
+restore brings an item back with its stock; unit editable until an item has history; removed
+items still resolve by name for history. The other device received every add, rename,
+removal and restore. Re-sync: a device ahead of an empty server, and a device seeing a new
+database identity, each re-sent everything — server held 53 records, 53 distinct.
 
 **Server (scripted, 25/25 against the local Worker):** pages and `/api/sync` refuse access
 without a session; login page and install files are public; wrong password → 401; correct

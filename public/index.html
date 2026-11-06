@@ -158,6 +158,8 @@ dialog .actions { margin: 0; }
 .sync[data-state="offline"]::before, .sync[data-state="idle"]::before { background: var(--low); }
 .sync[data-state="error"]::before, .sync[data-state="auth"]::before { background: var(--reorder); }
 .sync[data-state="error"], .sync[data-state="auth"] { color: var(--reorder); }
+.name.editable { cursor: pointer; }
+.name.editable b { text-decoration: underline dotted; text-underline-offset: 3px; text-decoration-color: var(--muted); }
 .hidden { display: none !important; }
 @media (min-width: 700px) { .desk-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; } }
 </style>
@@ -279,20 +281,23 @@ const Storage = {
   ops() { return this.events().filter(e => STOCK_TYPES.has(e.type)); },
   append(op) { return this.addEvent(op); },
 
+  // Every item ever known, removed ones included (active: false), so history keeps its names.
   items() {
-    const items = structuredClone(SEED_ITEMS);
-    for (const e of this.events().filter(e => e.type === 'ITEM_UPDATED').sort(byTime)) {
+    const items = structuredClone(SEED_ITEMS).map(i => ({ active: true, ...i }));
+    for (const e of this.events().filter(e => e.type === 'ITEM_ADDED' || e.type === 'ITEM_UPDATED').sort(byTime)) {
+      if (e.type === 'ITEM_ADDED') { if (!items.some(i => i.id === e.item.id)) items.push({ active: true, ...e.item }); continue; }
       const it = items.find(i => i.id === e.item_id);
       if (it) Object.assign(it, e.changes);
     }
     return items;
   },
+  addItem(item) { return this.addEvent(newEvent('ITEM_ADDED', { item })); },
   saveItems(next) {
     const cur = this.items();
     for (const it of next) {
       const was = cur.find(i => i.id === it.id); if (!was) continue;
       const changes = {};
-      for (const k of ['min', 'warn', 'target', 'supplier']) if (it[k] !== was[k]) changes[k] = it[k];
+      for (const k of ['name', 'cat', 'unit', 'step', 'min', 'warn', 'target', 'supplier', 'active']) if (it[k] !== undefined && it[k] !== was[k]) changes[k] = it[k];
       if (Object.keys(changes).length) this.addEvent(newEvent('ITEM_UPDATED', { item_id: it.id, changes }));
     }
   },
@@ -362,7 +367,12 @@ function legacyToEvents(d) {
       recorded_at: at, seq: 2, source: 'MIGRATION', order_id: ord.id, lines: cancelled });
   }
   for (const it of d.items || []) {
-    const seed = SEED_ITEMS.find(s => s.id === it.id); if (!seed) continue;
+    const seed = SEED_ITEMS.find(s => s.id === it.id);
+    if (!seed) {
+      if (it.id && it.name) out.push({ id: `mig_ia_${it.id}`.slice(0, 100), schema: SCHEMA, type: 'ITEM_ADDED',
+        occurred_at: '2026-01-01T00:00:00.000Z', recorded_at: at, seq: 0, source: 'MIGRATION', item: { ...it } });
+      continue;
+    }
     const changes = {};
     for (const k of ['min', 'warn', 'target', 'supplier']) if (it[k] !== undefined && it[k] !== seed[k]) changes[k] = it[k];
     if (!Object.keys(changes).length) continue;
@@ -403,12 +413,19 @@ const Sync = {
         const batch = Storage.pendingEvents().slice(0, 200);
         const res = await fetch('/api/sync', {
           method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ since: Storage.cursor(), events: batch })
+          body: JSON.stringify({ since: Storage.cursor(), epoch: Storage._get('ahke.epoch.v3', ''), events: batch })
         });
         if (res.status === 401) { this.set('auth'); return; }
         if ([404, 405, 501].includes(res.status)) { this.set('local'); return; }   // no server here
         if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || 'HTTP ' + res.status);
         const data = await res.json();
+        if (data.reset) {                      // server lost or replaced its data: re-send everything
+          Storage.setCursor(0);
+          Storage._set(Storage.K.pending, Storage.events().map(e => e.id));
+          Storage._set('ahke.epoch.v3', data.epoch || '');
+          continue;
+        }
+        if (data.epoch) Storage._set('ahke.epoch.v3', data.epoch);
         Storage.ack(batch.map(e => e.id));
         pulled += Storage.merge(data.events);
         Storage.setCursor(data.cursor);
@@ -452,10 +469,12 @@ function renderSyncStatus() {
 }
 
 /* --------------------------- state / helpers --------------------------- */
-let ITEMS = Storage.items(), SUPPLIERS = Storage.suppliers();
-const byId    = id => ITEMS.find(i => i.id === id);
+let ALL_ITEMS = Storage.items(), SUPPLIERS = Storage.suppliers();
+let ITEMS = ALL_ITEMS.filter(i => i.active !== false);   // what counts, orders and status use
+const byId    = id => ALL_ITEMS.find(i => i.id === id);  // includes removed items, for history
 const supName = id => (SUPPLIERS.find(s => s.id === id) || { name: '—' }).name;
-const reloadMaster = () => { ITEMS = Storage.items(); SUPPLIERS = Storage.suppliers(); };
+const reloadMaster = () => { ALL_ITEMS = Storage.items(); ITEMS = ALL_ITEMS.filter(i => i.active !== false); SUPPLIERS = Storage.suppliers(); };
+const enteredCount = lines => ITEMS.filter(i => lines[i.id] != null).length;   // 0 counts as entered; blank does not
 
 const uid = p => (p || 'op') + '_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 7);
 const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
@@ -689,7 +708,7 @@ function renderStock() {
 
     ${draft ? `<div class="banner">
       <b class="hd">Unfinished count</b>
-      ${Object.values(draft.lines).filter(v => v !== null).length} of ${ITEMS.length} entered, saved ${esc(ageText(draft.saved_at))}. Live stock is unchanged.
+      ${enteredCount(draft.lines)} of ${ITEMS.length} entered, saved ${esc(ageText(draft.saved_at))}. Live stock is unchanged.
       <div class="actions inline" style="margin-top:10px">
         <button class="btn-primary btn-sm" data-act="resume">Resume</button>
         <button class="btn-ghost btn-sm" data-act="discard">Discard</button>
@@ -731,6 +750,7 @@ const blankCountDraft = () => ({ lines: Object.fromEntries(ITEMS.map(i => [i.id,
 function renderCount() {
   setHeader('Count stock', businessDate(), 'stock');
   const { qty } = project();
+  for (const i of ITEMS) if (!(i.id in countDraft.lines)) countDraft.lines[i.id] = null;   // item added mid-count
   const cats = [...new Set(ITEMS.map(i => i.cat))];
 
   view.innerHTML = cats.map(cat => `
@@ -739,19 +759,26 @@ function renderCount() {
       ${ITEMS.filter(i => i.cat === cat).map(it => {
         const prev = qty[it.id], val = countDraft.lines[it.id];
         return `<div class="row count-row" data-row="${it.id}">
-          <div class="name"><b>${esc(it.name)}</b><small>${esc(it.unit)} · previously ${prev === undefined ? 'unknown' : fmtQty(prev)}</small></div>
+          <div class="name editable" data-edit="${it.id}" role="button" tabindex="0" title="Edit or remove ${esc(it.name)}"><b>${esc(it.name)}</b><small>${esc(it.unit)} · ${prev === undefined ? 'new — no count yet' : 'previously ' + fmtQty(prev)}</small></div>
           ${prev === undefined ? '' : `<button class="btn-ghost btn-sm" data-same="${it.id}" data-val="${prev}">Same</button>`}
           <input class="numin" inputmode="${it.step < 1 ? 'decimal' : 'numeric'}" value="${val === null ? '' : val}"
                  placeholder="—" data-item="${it.id}" aria-label="${esc(it.name)} quantity in ${esc(it.unit)}">
         </div>`;
       }).join('')}
     </div>`).join('') + `
+    <div class="actions"><button class="btn-ghost" id="count-add-item">+ Add item</button></div>
+    <p class="muted" style="margin-top:-6px">Tap an item's name to rename, change or remove it.</p>
     <div class="group-label">Note (optional)</div>
     <textarea id="count-note" placeholder="Anything worth recording about this count">${esc(countDraft.note)}</textarea>
     <p class="muted" style="margin-top:14px">
       Leave a field empty if you could not count it — empty means <b>unknown</b>, not zero.
       Enter <b>0</b> when an item has run out. All ${ITEMS.length} items must be entered to complete.</p>`;
 
+  view.querySelectorAll('[data-edit]').forEach(el => {
+    el.onclick = () => itemDialog(el.dataset.edit);
+    el.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); itemDialog(el.dataset.edit); } };
+  });
+  document.getElementById('count-add-item').onclick = () => itemDialog(null);
   view.querySelectorAll('input[data-item]').forEach(inp => {
     inp.addEventListener('input', onCountEntry);
     inp.addEventListener('focus', () => inp.select());
@@ -793,7 +820,7 @@ function persistCountDraft() {
   }, 250);
 }
 function refreshCountFooter() {
-  const entered = Object.values(countDraft.lines).filter(v => v !== null).length;
+  const entered = enteredCount(countDraft.lines);
   const invalid = view.querySelectorAll('.count-row.invalid').length;
   setFooter('Complete count', entered === ITEMS.length && !invalid, completeCount,
     `<b>${entered}</b> / ${ITEMS.length} entered` + (invalid ? ` · <span style="color:var(--reorder)">${invalid} invalid</span>` : ''));
@@ -820,7 +847,7 @@ async function completeCount() {
   Storage.append({
     id: uid('cnt'), schema: SCHEMA, type: 'COUNT', occurred_at: now, recorded_at: now,
     seq: Storage.ops().length + 1, source: 'WEB', supersedes, note: countDraft.note || '',
-    lines: { ...countDraft.lines }
+    lines: Object.fromEntries(ITEMS.map(i => [i.id, countDraft.lines[i.id] ?? null]))   // current items only
   });
   clearTimeout(saveTimer);
   Storage.clearDraft();
@@ -1183,13 +1210,23 @@ function renderSetup() {
   const { qty } = project();
   view.innerHTML = `
     <div class="card">
-      <h2 class="sec">Items</h2>
+      <h2 class="sec">Items (${ITEMS.length})</h2>
       ${ITEMS.map(it => `<div class="row" data-item-edit="${it.id}" style="cursor:pointer">
         <div class="name"><b>${esc(it.name)}</b>
           <small>reorder ${fmtQty(it.min)} · warn ${fmtQty(it.warn)} · target ${fmtQty(it.target)} ${esc(it.unit)} · ${esc(supName(it.supplier))}</small></div>
         <span class="muted">edit ›</span>
       </div>`).join('')}
+      <div class="actions" style="margin-bottom:4px"><button id="btn-add-item">+ Add item</button></div>
     </div>
+
+    ${ALL_ITEMS.some(i => i.active === false) ? `<div class="card">
+      <h2 class="sec">Removed items</h2>
+      <p class="muted">Hidden from counts and orders. Their history stays; restore any time.</p>
+      ${ALL_ITEMS.filter(i => i.active === false).map(it => `<div class="row">
+        <div class="name"><b>${esc(it.name)}</b><small>${esc(it.cat)} · ${esc(it.unit)}</small></div>
+        <button class="btn-sm" data-restore="${it.id}">Restore</button>
+      </div>`).join('')}
+    </div>` : ''}
 
     ${thresholdExceptions(qty).length ? `<div class="banner"><b class="hd">Threshold exceptions</b>
       <ul>${thresholdExceptions(qty).map(e => `<li>${e}</li>`).join('')}</ul></div>` : ''}
@@ -1219,7 +1256,12 @@ function renderSetup() {
       <div class="actions"><button class="btn-ghost btn-danger" id="btn-logout">Sign out</button></div>
     </div>` : ''}`;
 
-  view.querySelectorAll('[data-item-edit]').forEach(r => r.onclick = () => editItem(r.dataset.itemEdit));
+  view.querySelectorAll('[data-item-edit]').forEach(r => r.onclick = () => itemDialog(r.dataset.itemEdit));
+  document.getElementById('btn-add-item').onclick = () => itemDialog(null);
+  view.querySelectorAll('[data-restore]').forEach(b => b.onclick = () => {
+    const items = Storage.items(); items.find(i => i.id === b.dataset.restore).active = true;
+    Storage.saveItems(items); render();
+  });
   document.getElementById('btn-export').onclick = exportData;
   document.getElementById('btn-import-trigger').onclick = () => document.getElementById('importer').click();
   document.getElementById('importer').onchange = e => importData(e.target);
@@ -1243,31 +1285,98 @@ function renderSetup() {
   };
 }
 
-async function editItem(id) {
-  const it = byId(id);
+const STEPS = [{ v: 1, label: 'Whole units' }, { v: 0.1, label: 'Decimals (0.1)' }];
+
+function itemHasHistory(id) {
+  return Storage.ops().some(o => (o.type === 'COUNT' && o.lines && o.lines[id] != null) ||
+                                 (o.type === 'RECEIPT' && o.lines.some(l => l.item_id === id))) ||
+         Storage.orders().some(o => o.lines.some(l => l.item_id === id));
+}
+function openBalanceFor(id) {
+  return sum(Storage.orders().filter(o => o.confirmed)
+    .map(o => sum(orderBalances(o).lines.filter(l => l.item_id === id).map(l => l.B))));
+}
+const slug = t => t.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 24) || 'item';
+
+// id = null adds a new item. `draft` carries typed values back in after a validation error.
+async function itemDialog(id, draft) {
+  const cur = id ? byId(id) : null;
+  const it = draft || cur || { name: '', cat: '', unit: '', step: 1, min: '', warn: '', target: '', supplier: SUPPLIERS[0].id };
+  const locked = !!id && itemHasHistory(id);
+  const cats = [...new Set(ALL_ITEMS.map(i => i.cat))];
   const r = await ask({
-    title: it.name,
-    body: `<div class="grid2">
-      <div class="field"><label>Reorder point</label><input type="text" id="f-min" value="${it.min}"></div>
-      <div class="field"><label>Warn below</label><input type="text" id="f-warn" value="${it.warn}"></div>
-      <div class="field"><label>Order up to</label><input type="text" id="f-target" value="${it.target}"></div>
-      <div class="field"><label>Supplier</label><select id="f-sup">${SUPPLIERS.map(s =>
-        `<option value="${s.id}" ${s.id === it.supplier ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></div>
-    </div><div id="f-err" style="color:var(--reorder);font-size:13px"></div>`,
-    buttons: [{ label: 'Save', value: 1, cls: 'btn-primary' }, { label: 'Cancel', value: 0, cls: 'btn-ghost' }]
+    title: id ? 'Edit item' : 'Add item',
+    body: `
+      <div class="field"><label for="f-name">Name</label><input type="text" id="f-name" value="${esc(it.name)}" placeholder="e.g. Paper towels" autocomplete="off"></div>
+      <div class="grid2">
+        <div class="field"><label for="f-cat">Category</label><input type="text" id="f-cat" list="f-cats" value="${esc(it.cat)}" placeholder="e.g. Hygiene" autocomplete="off">
+          <datalist id="f-cats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="field"><label for="f-unit">Unit</label><input type="text" id="f-unit" value="${esc(it.unit)}" placeholder="packs" autocomplete="off" ${locked ? 'disabled' : ''}></div>
+      </div>
+      ${locked ? '<p class="muted" style="margin:-4px 0 10px">The unit is fixed once an item has been counted or ordered, so its history keeps meaning the same thing.</p>' : ''}
+      <div class="grid2">
+        <div class="field"><label for="f-step">Counted in</label><select id="f-step">${STEPS.map(o =>
+          `<option value="${o.v}" ${Number(it.step) === o.v ? 'selected' : ''}>${o.label}</option>`).join('')}</select></div>
+        <div class="field"><label for="f-sup">Supplier</label><select id="f-sup">${SUPPLIERS.map(sp =>
+          `<option value="${sp.id}" ${sp.id === it.supplier ? 'selected' : ''}>${esc(sp.name)}</option>`).join('')}</select></div>
+      </div>
+      <div class="grid2">
+        <div class="field"><label for="f-min">Reorder at</label><input type="text" inputmode="decimal" id="f-min" value="${esc(it.min)}" placeholder="2"></div>
+        <div class="field"><label for="f-target">Order up to</label><input type="text" inputmode="decimal" id="f-target" value="${esc(it.target)}" placeholder="5"></div>
+      </div>
+      <div class="field"><label for="f-warn">Warn below (blank = 1.5 × reorder)</label><input type="text" inputmode="decimal" id="f-warn" value="${esc(id || draft ? it.warn : '')}"></div>`,
+    buttons: [
+      { label: id ? 'Save' : 'Add item', value: 'save', cls: 'btn-primary' },
+      ...(id ? [{ label: 'Remove item', value: 'remove', cls: 'btn-ghost btn-danger' }] : []),
+      { label: 'Cancel', value: 0, cls: 'btn-ghost' }
+    ]
   });
   if (!r.value) return;
-  const min = parseFloat(document.getElementById('f-min').value);
-  const warn = parseFloat(document.getElementById('f-warn').value);
-  const target = parseFloat(document.getElementById('f-target').value);
-  const sup = document.getElementById('f-sup').value;
-  if (![min, warn, target].every(n => isFinite(n) && n >= 0) || !(min <= warn) || !(warn < target)) {
-    await ask({ title: 'Not saved', body: 'Thresholds must satisfy <b>0 ≤ reorder ≤ warn &lt; target</b>.',
-      buttons: [{ label: 'Back', value: 1, cls: 'btn-primary' }] });
-    return editItem(id);
+  if (r.value === 'remove') return removeItem(id);
+
+  const val = k => document.getElementById(k).value.trim();
+  const v = { name: val('f-name'), cat: val('f-cat'), unit: locked ? cur.unit : val('f-unit'), step: Number(val('f-step')),
+              supplier: val('f-sup'), min: val('f-min'), warn: val('f-warn'), target: val('f-target') };
+  const num = x => x === '' ? NaN : Number(x);
+  const min = num(v.min), target = num(v.target);
+  const warn = v.warn === '' ? Math.round(min * 1.5 * 100) / 100 : num(v.warn);
+  const errors = [];
+  if (!v.name) errors.push('a name');
+  else if (ITEMS.some(i => i.id !== id && i.name.toLowerCase() === v.name.toLowerCase())) errors.push(`a name not already used (“${esc(v.name)}” exists)`);
+  if (!v.cat) errors.push('a category');
+  if (!v.unit) errors.push('a unit, e.g. packs or kg');
+  if (![min, warn, target].every(n => isFinite(n) && n >= 0)) errors.push('numbers for reorder and order-up-to');
+  else if (!(min <= warn && warn < target)) errors.push('thresholds where reorder ≤ warn &lt; order-up-to');
+  if (errors.length) {
+    await ask({ title: 'Not saved yet', body: 'Please give ' + errors.join(', ') + '.', buttons: [{ label: 'Back', value: 1, cls: 'btn-primary' }] });
+    return itemDialog(id, { ...v, warn: v.warn });
   }
+
+  const fields = { name: v.name, cat: v.cat, unit: v.unit, step: v.step, min, warn, target, supplier: v.supplier };
+  if (id) {
+    const items = Storage.items();
+    Object.assign(items.find(x => x.id === id), fields);
+    Storage.saveItems(items);
+  } else {
+    Storage.addItem({ id: 'it_' + slug(v.name) + '_' + Math.random().toString(36).slice(2, 6), active: true, ...fields });
+  }
+  render();
+}
+
+async function removeItem(id) {
+  const it = byId(id), open = openBalanceFor(id);
+  if (open > 0) {
+    await ask({ title: `Can't remove ${it.name} yet`,
+      body: `${fmtQty(open)} ${esc(it.unit)} are still open on an order. Receive or cancel that first.`,
+      buttons: [{ label: 'OK', value: 1, cls: 'btn-primary' }] });
+    return;
+  }
+  const r = await ask({ title: `Remove ${it.name}?`,
+    body: 'It disappears from counts, the stock list and order suggestions. Its history stays, and you can restore it under Setup.',
+    buttons: [{ label: 'Remove', value: 1, cls: 'btn-danger' }, { label: 'Keep', value: 0, cls: 'btn-ghost' }] });
+  if (!r.value) return;
   const items = Storage.items();
-  Object.assign(items.find(x => x.id === id), { min, warn, target, supplier: sup });
+  items.find(i => i.id === id).active = false;
   Storage.saveItems(items);
   render();
 }
@@ -1289,10 +1398,11 @@ function backupEvents(d) {
   if (!Array.isArray(d.operations)) throw new Error('missing operations');
   return legacyToEvents(d);
 }
-const EVENT_TYPES = new Set(['COUNT', 'RECEIPT', 'RECEIPT_VOID', 'ORDER_CREATED', 'ORDER_CONFIRMED', 'ORDER_CANCELLED', 'ORDER_DELETED', 'ITEM_UPDATED']);
+const EVENT_TYPES = new Set(['COUNT', 'RECEIPT', 'RECEIPT_VOID', 'ORDER_CREATED', 'ORDER_CONFIRMED', 'ORDER_CANCELLED', 'ORDER_DELETED', 'ITEM_ADDED', 'ITEM_UPDATED']);
 function validateBackup(d) {
   const events = backupEvents(d);
-  const itemIds = new Set(SEED_ITEMS.map(i => i.id));
+  const itemIds = new Set([...Storage.items().map(i => i.id),
+    ...events.filter(e => e.type === 'ITEM_ADDED' && e.item && e.item.id).map(e => e.item.id)]);
   const ids = new Set();
   for (const e of events) {
     if (!e || !e.id || !e.type || !e.occurred_at) throw new Error('malformed record');

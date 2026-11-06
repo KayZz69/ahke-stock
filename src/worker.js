@@ -22,7 +22,7 @@ const PUBLIC = new Set(['/login', '/login.html', '/manifest.webmanifest', '/sw.j
   '/icon.svg', '/icon-192.png', '/icon-512.png', '/favicon.ico']);
 
 const EVENT_TYPES = new Set(['COUNT', 'RECEIPT', 'RECEIPT_VOID', 'ORDER_CREATED', 'ORDER_CONFIRMED',
-  'ORDER_CANCELLED', 'ORDER_DELETED', 'ITEM_UPDATED']);
+  'ORDER_CANCELLED', 'ORDER_DELETED', 'ITEM_ADDED', 'ITEM_UPDATED']);
 
 export default {
   async fetch(request, env) {
@@ -146,13 +146,25 @@ async function sync(request, env) {
   }
   if (stmts.length) await env.DB.batch(stmts);   // one atomic batch
 
+  // A cursor beyond anything stored means the server lost data (wiped or restored from an
+  // older backup). Tell the device to start over and re-send its whole history.
+  const [{ top }, meta] = await Promise.all([
+    env.DB.prepare('SELECT COALESCE(MAX(seq), 0) AS top FROM events').first(),
+    env.DB.prepare("SELECT value FROM meta WHERE key = 'epoch'").first()
+  ]);
+  const epoch = meta ? meta.value : '';
+  if (since > top || (body.epoch && epoch && body.epoch !== epoch)) {
+    return json({ events: [], cursor: 0, more: false, reset: true, epoch });
+  }
+
   const { results } = await env.DB.prepare(
     'SELECT seq, body FROM events WHERE seq > ? ORDER BY seq LIMIT ?'
   ).bind(since, PAGE).all();
   return json({
     events: results.map(r => JSON.parse(r.body)),
     cursor: results.length ? results[results.length - 1].seq : since,
-    more: results.length === PAGE
+    more: results.length === PAGE,
+    epoch
   });
 }
 
